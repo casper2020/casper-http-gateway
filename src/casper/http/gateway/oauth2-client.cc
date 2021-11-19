@@ -32,7 +32,7 @@
 casper::http::gateway::OAuth2Client::OAuth2Client (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config)
     : ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>("OHC", sk_tube_, a_loggable_data, a_config)
 {
-    /* empty */
+    Set(Job::Mode::Gateway);
 }
 
 /**
@@ -81,40 +81,23 @@ void casper::http::gateway::OAuth2Client::InnerRun (const int64_t& a_id, const J
     // Payload
     //
     const Json::Value& payload = Payload(a_payload);
-    
-    const Json::Value& http     = json.Get(payload, "http"   , Json::ValueType::objectValue, nullptr);
-    const Json::Value& url      = json.Get(http   , "url"    , Json::ValueType::stringValue, nullptr);
-    const Json::Value& headers  = json.Get(http   , "headers", Json::ValueType::objectValue , nullptr);
-    const Json::Value& method   = json.Get(http   , "method" , Json::ValueType::stringValue, nullptr);
-    
-    const Json::Value& body     = json.Get(http   , "body"   , Json::ValueType::objectValue, &Json::Value::null);
-    
-    EV_CURL_HEADERS_MAP c_headers;
-    for ( auto key : headers.getMemberNames() ) {
-        const Json::Value& header = json.Get(headers, key.c_str(), Json::ValueType::stringValue, nullptr);
-        c_headers[key] = { header.asString() };
-    }
+    const Json::Value& http    = json.Get(payload, "http", Json::ValueType::objectValue, nullptr);
 
-    o_response.payload_["__id__"] = static_cast<Json::UInt64>(a_id);
-    
     // ... prepare tracking info ...
     const ::casper::job::deferrable::Tracking tracking = {
         /* bjid_ */ a_id,
         /* rjnr_ */ RJNR(),
         /* rjid_ */ RJID(),
         /* rcid_ */ RCID(),
-        /* dpi_  */ "OAuth2HttpClient",
-    };
-    
+        /* dpi_  */ "GW",
+    };        
     // TODO: NOW perform requested method, not only POST    
-    const gateway::Arguments arguments(gateway::Parameters(
-        method.asString(), url.asString(), c_headers, json.Write(body)
-    ));
-    
-    // ... schedule deferred info ...
+    const gateway::Arguments arguments(http);
+    // ... schedule deferred HTTP request ...
     dynamic_cast<gateway::Dispatcher*>(d_.dispatcher_)->Push(tracking, arguments);
     // ... publish progress ...
-    ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>::Publish(OAuth2ClientStep::DoingIt,
+    ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>::Publish(tracking.bjid_, tracking.rcid_, tracking.rjid_,
+                                                                                                  OAuth2ClientStep::DoingIt,
                                                                                                   ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>::Status::InProgress,
                                                                                                   sk_i18n_in_progress_.key_, sk_i18n_in_progress_.arguments_);
     // ... accepted ...
@@ -138,5 +121,22 @@ void casper::http::gateway::OAuth2Client::InnerRun (const int64_t& a_id, const J
 uint16_t casper::http::gateway::OAuth2Client::OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<gateway::Arguments>* a_deferred, Json::Value& o_payload)
 {
     // ... finalize ...
+    const auto response = a_deferred->response();
+    // ... gateway response mode ....
+    // !<status-code-int-value>,<content-type-length-in-bytes>,<content-type-string-value>,<headers-length-bytes>,<headers>,<body-length-bytes>,<body>
+    std::stringstream ss;
+    ss << '!' << response.code() << ',' << response.content_type().length() << ',' << response.content_type();
+    ss << ',' << response.body().length() << ',' << response.body();
+    {
+        std::string v = "";
+        for ( auto header : a_deferred->response().headers() ) {
+            v = header.first + ":" + header.second;
+            ss << ',' << v.length() << ',' << v;
+        }
+    }
+    // ... set payload ...
+    o_payload         = Json::Value(Json::ValueType::objectValue);
+    o_payload["data"] = ss.str();
+    // ... done ...
     return a_deferred->response().code();
 }

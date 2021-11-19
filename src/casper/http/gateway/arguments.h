@@ -24,7 +24,8 @@
 
 #include "casper/job/deferrable/arguments.h"
 
-#include "ev/curl/object.h" // EV_CURL_HEADERS_MAP
+#include "json/json.h"
+
 
 namespace casper
 {
@@ -40,10 +41,7 @@ namespace casper
                 
             public: // Const Data
                 
-                const std::string         method_;
-                const std::string         url_;
-                const EV_CURL_HEADERS_MAP headers_;
-                const std::string         body_;
+                const Json::Value& request_;
                 
             public: // Constructor(s) / Destructor
                 
@@ -52,28 +50,13 @@ namespace casper
                 /**
                  * @brief Default constructor.
                  *
-                 * @param a_method  HTTP method name.
-                 * @param a_url     HTTP URL.
-                 * @param a_headers HTTP headers.
+                 * @param a_request JSON object.
                  */
-                Parameters (const std::string& a_method, const std::string& a_url, const EV_CURL_HEADERS_MAP& a_headers)
-                 : method_(a_method), url_(a_url), headers_(a_headers), body_("")
+                Parameters (const Json::Value& a_request)
+                 : request_(a_request)
                 {
                     /* empty */
-                }
-                
-                /**
-                 * @brief POST constructor.
-                 *
-                 * @param a_method  HTTP method name.
-                 * @param a_url     HTTP URL.
-                 * @param a_headers HTTP headers.
-                 */
-                Parameters (const std::string& a_method, const std::string& a_url, const EV_CURL_HEADERS_MAP& a_headers, const std::string& a_body)
-                 : method_(a_method), url_(a_url), headers_(a_headers), body_(a_body)
-                {
-                    /* empty */
-                }
+                }                
                 
                 /**
                  * @brief Default constructor.
