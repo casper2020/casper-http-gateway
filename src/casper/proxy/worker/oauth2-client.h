@@ -3,36 +3,36 @@
  *
  * Copyright (c) 2011-2021 Cloudware S.A. All rights reserved.
  *
- * This file is part of casper-http-gateway.
+ * This file is part of casper-proxy-worker.
  *
- * casper-http-gateway is free software: you can redistribute it and/or modify
+ * casper-proxy-worker is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * casper-http-gateway  is distributed in the hope that it will be useful,
+ * casper-proxy-worker  is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with casper-http-gateway.  If not, see <http://www.gnu.org/licenses/>.
+ * along with casper-proxy-worker.  If not, see <http://www.gnu.org/licenses/>.
  */
 #pragma once
-#ifndef CASPER_HTTP_GATEWAY_OAUTH2_CLIENT_H_
-#define CASPER_HTTP_GATEWAY_OAUTH2_CLIENT_H_
+#ifndef CASPER_PROXY_WORKER_OAUTH2_CLIENT_H_
+#define CASPER_PROXY_WORKER_OAUTH2_CLIENT_H_
 
 #include "casper/job/deferrable/base.h"
-#include "casper/http/gateway/arguments.h"
-#include "casper/http/gateway/deferred.h"
+#include "casper/proxy/worker/arguments.h"
+#include "casper/proxy/worker/deferred.h"
 
 namespace casper
 {
 
-    namespace http
+    namespace proxy
     {
     
-        namespace gateway
+        namespace worker
         {
         
             enum class OAuth2ClientStep : uint8_t {
@@ -63,14 +63,14 @@ namespace casper
 
             protected: // Method(s) / Function(s) - deferrable::Dispatcher Callbacks
                 
-                uint16_t OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<gateway::Arguments>* a_deferred, Json::Value& o_payload);
+                uint16_t OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
 
             }; // end of class 'Base'
         
-        } // end of namespace 'gateway'
+        } // end of namespace 'worker'
     
-    } // end of namespace 'http'
+    } // end of namespace 'worker'
 
 } // end of namespace 'casper'
 
-#endif // CASPER_HTTP_GATEWAY_OAUTH2_CLIENT_H_
+#endif // CASPER_PROXY_WORKER_OAUTH2_CLIENT_H_

@@ -3,23 +3,23 @@
  *
  * Copyright (c) 2011-2020 Cloudware S.A. All rights reserved.
  *
- * This file is part of casper-http-gateway.
+ * This file is part of casper-proxy-worker.
  *
- * casper-http-gateway is free software: you can redistribute it and/or modify
+ * casper-proxy-worker is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * casper-http-gateway  is distributed in the hope that it will be useful,
+ * casper-proxy-worker  is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with casper-http-gateway. If not, see <http://www.gnu.org/licenses/>.
+ * along with casper-proxy-worker. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "casper/http/gateway/deferred.h"
+#include "casper/proxy/worker/deferred.h"
 
 #include "casper/job/exceptions.h"
 
@@ -31,9 +31,9 @@
  * @param a_tracking      Request tracking info.
  * @param a_loggable_data
  */
-casper::http::gateway::Deferred::Deferred (const casper::job::deferrable::Tracking& a_tracking, const ev::Loggable::Data& a_loggable_data
+casper::proxy::worker::Deferred::Deferred (const casper::job::deferrable::Tracking& a_tracking, const ev::Loggable::Data& a_loggable_data
                                            CC_IF_DEBUG_CONSTRUCT_APPEND_VAR(const cc::debug::Threading::ThreadID, a_thread_id))
-: ::casper::job::deferrable::Deferred<gateway::Arguments>(gateway::MakeID(a_tracking), a_tracking CC_IF_DEBUG_CONSTRUCT_APPEND_PARAM_VALUE(a_thread_id)),
+: ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>(casper::proxy::worker::MakeID(a_tracking), a_tracking CC_IF_DEBUG_CONSTRUCT_APPEND_PARAM_VALUE(a_thread_id)),
     loggable_data_(a_loggable_data),
     http_(loggable_data_)
 {
@@ -43,7 +43,7 @@ casper::http::gateway::Deferred::Deferred (const casper::job::deferrable::Tracki
 /**
  * @brief Destructor.
  */
-casper::http::gateway::Deferred::~Deferred()
+casper::proxy::worker::Deferred::~Deferred()
 {
    /* empty */
 }
@@ -54,10 +54,10 @@ casper::http::gateway::Deferred::~Deferred()
  * @param a_args      This deferred request arguments.
  * @param a_callback  Functions to call by this object when needed.
  */
-void casper::http::gateway::Deferred::Run (const gateway::Arguments& a_args, Callbacks a_callbacks)
+void casper::proxy::worker::Deferred::Run (const casper::proxy::worker::Arguments& a_args, Callbacks a_callbacks)
 {
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);        
-    arguments_  = new gateway::Arguments(a_args);
+    arguments_  = new casper::proxy::worker::Arguments(a_args);
     callbacks_  = a_callbacks;
     // ... log ...
     callbacks_.on_log_deferred_step_(this, method_str_ + "...");
@@ -140,8 +140,8 @@ void casper::http::gateway::Deferred::Run (const gateway::Arguments& a_args, Cal
     callbacks_.on_main_thread_([this, data]() {
         // ... async perform HTTP request ...
         const ::cc::easy::HTTPClient::RawCallbacks callbacks = {
-            /* on_success_ */ std::bind(&gateway::Deferred::OnCompleted, this, std::placeholders::_1),
-            /* on_failure_ */ std::bind(&gateway::Deferred::OnFailure, this, std::placeholders::_1)
+            /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnCompleted, this, std::placeholders::_1),
+            /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnFailure, this, std::placeholders::_1)
         };
         switch(data.method_) {
             case ::ev::curl::Request::HTTPRequestType::GET:
@@ -168,7 +168,7 @@ void casper::http::gateway::Deferred::Run (const gateway::Arguments& a_args, Cal
  *
  * @param a_value RAW value.
  */
-void casper::http::gateway::Deferred::OnCompleted (const ::cc::easy::HTTPClient::RawValue& a_value)
+void casper::proxy::worker::Deferred::OnCompleted (const ::cc::easy::HTTPClient::RawValue& a_value)
 {
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
     // ... save response ...
@@ -186,7 +186,7 @@ void casper::http::gateway::Deferred::OnCompleted (const ::cc::easy::HTTPClient:
  *
  * @param a_exception Exception ocurred.
  */
-void casper::http::gateway::Deferred::OnFailure (const ::cc::Exception& a_exception)
+void casper::proxy::worker::Deferred::OnFailure (const ::cc::Exception& a_exception)
 {
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
     response_.Set(500, a_exception);

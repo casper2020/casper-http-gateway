@@ -3,39 +3,39 @@
  *
  * Copyright (c) 2011-2021 Cloudware S.A. All rights reserved.
  *
- * This file is part of casper-http-gateway.
+ * This file is part of casper-proxy-worker.
  *
- * casper-http-gateway is free software: you can redistribute it and/or modify
+ * casper-proxy-worker is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * casper-http-gateway  is distributed in the hope that it will be useful,
+ * casper-proxy-worker  is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with casper-http-gateway.  If not, see <http://www.gnu.org/licenses/>.
+ * along with casper-proxy-worker.  If not, see <http://www.gnu.org/licenses/>.
  */
 #pragma once
-#ifndef CASPER_HTTP_GATEWAY_DISPATCHER_H_
-#define CASPER_HTTP_GATEWAY_DISPATCHER_H_
+#ifndef CASPER_PROXY_WORKER_DISPATCHER_H_
+#define CASPER_PROXY_WORKER_DISPATCHER_H_
 
 #include "casper/job/deferrable/dispatcher.h"
 
-#include "casper/http/gateway/arguments.h"
+#include "casper/proxy/worker/arguments.h"
 
 namespace casper
 {
 
-    namespace http
+    namespace proxy
     {
     
-        namespace gateway
+        namespace worker
         {
             
-            class Dispatcher : public ::casper::job::deferrable::Dispatcher<gateway::Arguments>
+            class Dispatcher : public ::casper::job::deferrable::Dispatcher<casper::proxy::worker::Arguments>
             {
 
             protected: // Const Data
@@ -56,14 +56,14 @@ namespace casper
                 
             public: // Method(s) / Function(s)
 
-                void Push (const ::casper::job::deferrable::Tracking& a_tracking, const gateway::Arguments& a_args);
+                void Push (const ::casper::job::deferrable::Tracking& a_tracking, const casper::proxy::worker::Arguments& a_args);
 
             }; // end of class 'Dispatcher'
 
-        } // end of namespace 'gateway'
+        } // end of namespace 'worker'
     
-    } // end of namespace 'http'
+    } // end of namespace 'worker'
 
 } // end of namespace 'casper'
 
-#endif // CASPER_HTTP_GATEWAY_DISPATCHER_H_
+#endif // CASPER_PROXY_WORKER_DISPATCHER_H_
