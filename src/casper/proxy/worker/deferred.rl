@@ -141,6 +141,7 @@ void casper::proxy::worker::Deferred::Run (const casper::proxy::worker::Argument
         // ... async perform HTTP request ...
         const ::cc::easy::HTTPClient::RawCallbacks callbacks = {
             /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnCompleted, this, std::placeholders::_1),
+            /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnError, this, std::placeholders::_1),
             /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnFailure, this, std::placeholders::_1)
         };
         switch(data.method_) {
@@ -180,6 +181,31 @@ void casper::proxy::worker::Deferred::OnCompleted (const ::cc::easy::HTTPClient:
         Untrack();
     });
 }
+
+/**
+ * @brief Called by HTTP client to report when an API call to the provided endpoint was not performed - usually due to an cURL error ( or maybe server error ).
+ *
+ * @param a_error Error ocurred.
+ */
+void casper::proxy::worker::Deferred::OnError (const ::cc::easy::HTTPClient::RawError& a_value)
+{
+    CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
+    switch (a_value.code_) {
+        case CURLE_OPERATION_TIMEOUTED:
+            // 504 Gateway Timeout
+            response_.Set(504, "cURL: " + a_value.message());
+            break;
+        default:
+            // 500 Internal Server Error
+            response_.Set(500, a_value.message());
+            break;
+    }
+    callbacks_.on_looper_thread_(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + method_str_ + "-error-", [this](const std::string&) {
+        callbacks_.on_completed_(this);
+        Untrack();
+    });
+}
+
 
 /**
  * @brief Called by HTTP client to report when an API call to the provided endpoint was not performed - usually due to an internal error ( NOT server error ).

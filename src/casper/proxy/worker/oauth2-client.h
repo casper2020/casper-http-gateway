@@ -48,7 +48,7 @@ namespace casper
                                 
             public: // Static Const Data
                 
-                constexpr static const char* const sk_tube_ = "gw-oauth2-http-client";
+                constexpr static const char* const sk_tube_ = "oauth2-http-client";
                 
             public: // Constructor(s) / Destructor
                 

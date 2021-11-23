@@ -36,12 +36,15 @@ namespace casper
         namespace worker
         {
 
+            // MARK: -
+
             class Parameters
             {
                 
             public: // Const Data
                 
                 const Json::Value& request_;
+                const bool         primitive_;
                 
             public: // Constructor(s) / Destructor
                 
@@ -50,10 +53,11 @@ namespace casper
                 /**
                  * @brief Default constructor.
                  *
-                 * @param a_request JSON object.
+                 * @param a_request   JSON object.
+                 * @param a_primitive True when response should be done in 'primitive' mode.
                  */
-                Parameters (const Json::Value& a_request)
-                 : request_(a_request)
+                Parameters (const Json::Value& a_request, const bool a_primitive)
+                 : request_(a_request), primitive_(a_primitive)
                 {
                     /* empty */
                 }                
@@ -65,14 +69,47 @@ namespace casper
                 {
                     /* empty */
                 }
-                
+
             public: // Overloaded Operator(s)
                 
                 void operator = (Parameters const&)  = delete;  // assignment is not allowed
                 
             }; // end of class 'Parameters'
         
-            typedef ::casper::job::deferrable::Arguments<Parameters> Arguments;
+            // MARK: -
+
+            class Arguments final : public ::casper::job::deferrable::Arguments<Parameters>
+            {
+                
+            public: // Constructor(s) / Destructor
+            
+                Arguments() = delete;
+                
+                /**
+                 * @brief Default constructor.
+                 *
+                 * @param a_parameters Parameters.
+                 */
+                Arguments (const Parameters& a_parameters)
+                 : ::casper::job::deferrable::Arguments<Parameters>(a_parameters)
+                {
+                    /* empty */
+                }
+                
+                /**
+                 * @brief Default constructor.
+                 */
+                virtual ~Arguments ()
+                {
+                    /* empty */
+                }
+
+                
+            public: // Method(s) / Function(s)
+                
+                virtual bool Primitive () const { return parameters_.primitive_; };
+                
+            }; // end of class 'Arguments'
 
         } // end of namespace 'worker'
     

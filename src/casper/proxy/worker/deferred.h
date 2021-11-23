@@ -65,6 +65,7 @@ namespace casper
             public: // Method(s) / Function(s) - HTTP Request Callbacks
 
                 void OnCompleted (const ::cc::easy::HTTPClient::RawValue& a_value);
+                void OnError     (const ::cc::easy::HTTPClient::RawError& a_error);
                 void OnFailure   (const ::cc::Exception& a_exception);
 
             }; // end of class 'Deferred'

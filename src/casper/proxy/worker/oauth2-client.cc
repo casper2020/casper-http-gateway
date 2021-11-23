@@ -32,7 +32,7 @@
 casper::proxy::worker::OAuth2Client::OAuth2Client (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config)
     : ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>("OHC", sk_tube_, a_loggable_data, a_config)
 {
-    Set(Job::Mode::Gateway);
+    /* empty */
 }
 
 /**
@@ -80,19 +80,18 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
     //
     // Payload
     //
-    const Json::Value& payload = Payload(a_payload);
+    bool               broker  = false;
+    const Json::Value& payload = Payload(a_payload, &broker);
     const Json::Value& http    = json.Get(payload, "http", Json::ValueType::objectValue, nullptr);
-
     // ... prepare tracking info ...
     const ::casper::job::deferrable::Tracking tracking = {
         /* bjid_ */ a_id,
         /* rjnr_ */ RJNR(),
         /* rjid_ */ RJID(),
         /* rcid_ */ RCID(),
-        /* dpi_  */ "GW",
+        /* dpi_  */ "CPW",
     };        
-    // TODO: NOW perform requested method, not only POST    
-    const casper::proxy::worker::Arguments arguments(http);
+    const casper::proxy::worker::Arguments arguments({http, broker});
     // ... schedule deferred HTTP request ...
     dynamic_cast<casper::proxy::worker::Dispatcher*>(d_.dispatcher_)->Push(tracking, arguments);
     // ... publish progress ...
@@ -122,21 +121,39 @@ uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestCompleted (const 
 {
     // ... finalize ...
     const auto response = a_deferred->response();
-    // ... gateway response mode ....
-    // !<status-code-int-value>,<content-type-length-in-bytes>,<content-type-string-value>,<headers-length-bytes>,<headers>,<body-length-bytes>,<body>
-    std::stringstream ss;
-    ss << '!' << response.code() << ',' << response.content_type().length() << ',' << response.content_type();
-    ss << ',' << response.body().length() << ',' << response.body();
-    {
-        std::string v = "";
-        for ( auto header : a_deferred->response().headers() ) {
-            v = header.first + ":" + header.second;
-            ss << ',' << v.length() << ',' << v;
+    // ... set payload ...
+    o_payload = Json::Value(Json::ValueType::objectValue);
+    if ( true == a_deferred->arguments().parameters().primitive_ ) {
+        // ... gateway response mode ....
+        // !<status-code-int-value>,<content-type-length-in-bytes>,<content-type-string-value>,<headers-length-bytes>,<headers>,<body-length-bytes>,<body>
+        std::stringstream ss;
+        ss << '!' << response.code() << ',' << response.content_type().length() << ',' << response.content_type();
+        ss << ',' << response.body().length() << ',' << response.body();
+        {
+            std::string v = "";
+            for ( auto header : a_deferred->response().headers() ) {
+                v = header.first + ":" + header.second;
+                ss << ',' << v.length() << ',' << v;
+            }
+        }
+        // ... data ...
+        o_payload["data"] = ss.str();
+    } else {
+        // ... content-type ...
+        o_payload["content-type"] = response.content_type();
+        // ... body ...
+        if ( 0 == strncasecmp(response.content_type().c_str(), "content-type: application/json", sizeof(char) * 30) ) {
+            const ::cc::easy::JSON<::cc::Exception> json;
+            json.Parse(response.body(), o_payload["body"]);
+        } else {
+            o_payload["body"] = response.body();
+        }
+        // ... headers ...
+        o_payload["headers"] = Json::Value(Json::ValueType::objectValue);
+        for ( auto header : response.headers() ) {
+            o_payload["headers"][header.first] = header.second;
         }
     }
-    // ... set payload ...
-    o_payload         = Json::Value(Json::ValueType::objectValue);
-    o_payload["data"] = ss.str();
     // ... done ...
     return a_deferred->response().code();
 }
