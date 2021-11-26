@@ -24,7 +24,7 @@
 
 #include "casper/job/deferrable/dispatcher.h"
 
-#include "casper/proxy/worker/arguments.h"
+#include "casper/proxy/worker/types.h"
 
 namespace casper
 {

@@ -23,8 +23,13 @@
 #define CASPER_PROXY_WORKER_OAUTH2_CLIENT_H_
 
 #include "casper/job/deferrable/base.h"
-#include "casper/proxy/worker/arguments.h"
+#include "casper/proxy/worker/types.h"
 #include "casper/proxy/worker/deferred.h"
+
+#include "casper/proxy/worker/v8/script.h"
+
+#include <string>
+#include <map>
 
 namespace casper
 {
@@ -45,10 +50,16 @@ namespace casper
         
             class OAuth2Client final : public ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>
             {
-                                
+
             public: // Static Const Data
                 
-                constexpr static const char* const sk_tube_ = "oauth2-http-client";
+                constexpr static const char* const sk_tube_      = "oauth2-http-client";
+                static           const Json::Value sk_behaviour_;
+                
+            private: // Data
+                
+                std::map<std::string, proxy::worker::Config*> providers_;
+                casper::proxy::worker::v8::Script*            script_;
                 
             public: // Constructor(s) / Destructor
                 
