@@ -72,9 +72,13 @@ namespace casper
                 virtual void InnerSetup ();
                 virtual void InnerRun   (const int64_t& a_id, const Json::Value& a_payload, cc::easy::job::Job::Response& o_response);
 
-            protected: // Method(s) / Function(s) - deferrable::Dispatcher Callbacks
+            private: // Method(s) / Function(s) - deferrable::Dispatcher Callbacks
                 
                 uint16_t OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
+                
+            private: // Method(s) / Function(s) - V8 Helper(s)
+                
+                void Evaluate (const uint64_t& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const;
 
             }; // end of class 'Base'
         

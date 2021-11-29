@@ -28,7 +28,7 @@
 
 #include "cc/easy/http.h"
 
-#include <deque>
+#include <vector>
 
 namespace casper
 {
@@ -65,7 +65,7 @@ namespace casper
             private: // Data
 
                 Operation                                       current_;       //!< Current operation.
-                std::deque<Operation>                           operations_;    //!< Chained operations.
+                std::vector<Operation>                          operations_;    //!< Chained operations.
                 std::string                                     operation_str_; //!< Current operation, string representation.
                 std::map<Operation, job::deferrable::Response>  responses_;     //!< Operations responses.
                 bool                                 allow_oauth2_restart_;
@@ -87,19 +87,13 @@ namespace casper
                 void ScheduleAuthorization        (const bool a_track, const char* const a_origin, const size_t a_delay);
                 void SchedulePerformRequest       (const bool a_track, const char* const a_origin, const size_t a_delay);
 
-            
-            private: // Method(s) / Function(s) - HTTP Client Request Callbacks
-                
-                void OnHTTPRequestCompleted (const ::cc::easy::HTTPClient::RawValue& a_value);
-                void OnHTTPRequestError     (const ::cc::easy::HTTPClient::RawError& a_error);
-                void OnHTTPRequestFailure   (const ::cc::Exception& a_exception);
 
-            private: // Method(s) / Function(s) - HTTP OAuth2 Client Request Callbacks
+            private: // Method(s) / Function(s) - HTTP && OAuth2 HTTP Client Request(s) Callbacks
 
-                void OnHTTPOAuth2RequestTokensChanged ();
-                void OnHTTPOAuth2RequestCompleted     (const ::cc::easy::HTTPClient::RawValue& a_value);
-                void OnHTTPOAuth2RequestError         (const ::cc::easy::HTTPClient::RawError& a_error);
-                void OnHTTPOAuth2RequestFailure       (const ::cc::Exception& a_exception);
+                void OnOAuth2TokensChanged      ();
+                void OnHTTPRequestCompleted     (const ::cc::easy::HTTPClient::RawValue& a_value);
+                void OnHTTPRequestError         (const ::cc::easy::HTTPClient::RawError& a_error);
+                void OnHTTPRequestFailure       (const ::cc::Exception& a_exception);
 
             }; // end of class 'Deferred'
 

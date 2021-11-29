@@ -56,23 +56,30 @@ namespace casper
             
             public: // Data Type(s)
                 
+                typedef std::map<std::string, std::vector<std::string>> Headers;
+                
                 typedef struct {
                     std::string tokens_;
                 } StorageEndpoints;
                 
                 typedef struct {
-                    std::map<std::string, std::vector<std::string>> headers_;
-                    StorageEndpoints                                endpoints_;
+                    Headers          headers_;
+                    StorageEndpoints endpoints_;
+                    Json::Value      arguments_;
                 } Storage;
                 
                 typedef struct {
-                    std::map<std::string, std::vector<std::string>> headers_;
+                    Headers headers_;
                 } Storageless;
+                
+                typedef Json::Value Signing;
                 
             public: // Const Data
                 
                 const Type                                 type_;
                 const ::cc::easy::OAuth2HTTPClient::Config http_;
+                const Headers                              headers_;        //!< additional headers per request
+                const Signing                              signing_;        //!< signing configs
                 const Storage*                             storage_;
                 const Storageless*                         storageless_;
                 
@@ -84,10 +91,12 @@ namespace casper
                  * @brief Default constructor for 'storage' mode.
                  *
                  * @param a_http    OAuth2 HTTP Client config.
+                 * @param a_headers Additional headers per request.
+                 * @param a_signing Signing config.
                  * @param a_storage Storage config.
                  */
-                Config (const ::cc::easy::OAuth2HTTPClient::Config& a_config, const Storage& a_storage)
-                 : type_(Type::Storage), http_(a_config)
+                Config (const ::cc::easy::OAuth2HTTPClient::Config& a_config, const Headers& a_headers, const Signing& a_signing, const Storage& a_storage)
+                 : type_(Type::Storage), http_(a_config), headers_(a_headers), signing_(a_signing)
                 {
                     storage_     = new Storage(a_storage);
                     storageless_ = nullptr;
@@ -97,10 +106,12 @@ namespace casper
                  * @brief Default constructor for 'storageless' mode.
                  *
                  * @param a_http        OAuth2 HTTP Client config.
+                 * @param a_headers     Additional headers per request.
+                 * @param a_signing     Signing config.
                  * @param a_storageless Storageless config.
                  */
-                Config (const ::cc::easy::OAuth2HTTPClient::Config& a_config, const Storageless& a_storageless)
-                 : type_(Type::Storageless), http_(a_config)
+                Config (const ::cc::easy::OAuth2HTTPClient::Config& a_config, const Headers& a_headers, const Signing& a_signing, const Storageless& a_storageless)
+                 : type_(Type::Storageless), http_(a_config), headers_(a_headers), signing_(a_signing)
                 {
                     storage_     = nullptr;
                     storageless_ = new Storageless(a_storageless);
@@ -112,7 +123,7 @@ namespace casper
                  * @param a_config Object to copy.
                  */
                 Config (const Config& a_config)
-                : type_(a_config.type_), http_(a_config.http_)
+                : type_(a_config.type_), http_(a_config.http_), headers_(a_config.headers_), signing_(a_config.signing_)
                 {
                     storage_     = ( nullptr != a_config.storage_     ? new Storage(*a_config.storage_)         : nullptr );
                     storageless_ = ( nullptr != a_config.storageless_ ? new Storageless(*a_config.storageless_) : nullptr );

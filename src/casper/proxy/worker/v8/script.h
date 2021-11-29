@@ -51,6 +51,11 @@ namespace casper
                     Script (const std::string& a_owner, const std::string& a_name, const std::string& a_uri,
                             const std::string& a_out_path);
                     virtual ~Script ();
+                    
+                private: // Static Method(s) / Function(s)
+                    
+                    static void NowUTCISO8601 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
+                    static void RSASignSHA256 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
                                         
                 }; // end of class 'Script'
                 
