@@ -74,8 +74,9 @@ namespace casper
 
             private: // Method(s) / Function(s) - deferrable::Dispatcher Callbacks
                 
-                uint16_t OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
-                
+                uint16_t OnDeferredRequestCompleted    (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
+                uint16_t OnDeferredRequestFailed       (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
+
             private: // Method(s) / Function(s) - V8 Helper(s)
                 
                 void Evaluate (const uint64_t& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const;

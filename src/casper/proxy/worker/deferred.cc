@@ -21,8 +21,6 @@
 
 #include "casper/proxy/worker/deferred.h"
 
-#include "casper/job/exceptions.h"
-
 extern std::string ede (const std::string&);
 extern std::string edd (const std::string&);
 
@@ -72,7 +70,7 @@ casper::proxy::worker::Deferred::~Deferred()
  */
 void casper::proxy::worker::Deferred::Run (const casper::proxy::worker::Arguments& a_args, Callbacks a_callbacks)
 {
-    // ... sanity check ...
+    // ... (in)sanity checkpoint ...
     CC_DEBUG_ASSERT(nullptr == http_ && nullptr == http_oauth2_ && nullptr == arguments_);
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
     // ... keep track of arguments and callbacks ...
@@ -99,7 +97,7 @@ void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track 
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
     CC_DEBUG_ASSERT(nullptr == http_ && nullptr != arguments_);
-    CC_DEBUG_ASSERT(true == Tracked());
+    CC_DEBUG_ASSERT(false == Tracked());
     // ... mark ...
     current_       = Deferred::Operation::LoadTokens;
     operation_str_ = "db/" + std::string(nullptr != a_origin ? a_origin : __FUNCTION__);
@@ -119,6 +117,10 @@ void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track 
             arguments().parameters().storage_.method_ = ::ev::curl::Request::HTTPRequestType::GET;
             // ... prepare HTTP client ...
             http_ = new ::cc::easy::HTTPClient(loggable_data_);
+            http_->SetcURLedCallbacks({
+                /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
+                /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
+            }, /* TODO: */ true);
             // ... HTTP requests must be performed @ MAIN thread ...
             callbacks_.on_main_thread_([this]() {
                 const auto& params  = arguments().parameters();
@@ -145,8 +147,8 @@ void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track 
         }
             break;
         default:
-            throw ::casper::job::InternalServerException("@ %s : Method " UINT8_FMT " - not implemented yet!",
-                                                         __FUNCTION__, static_cast<uint8_t>(arguments().parameters().type_)
+            throw ::cc::NotImplemented("@ %s : Method " UINT8_FMT " - not implemented yet!",
+                                            __FUNCTION__, static_cast<uint8_t>(arguments().parameters().type_)
             );
     }
 }
@@ -178,9 +180,13 @@ void casper::proxy::worker::Deferred::ScheduleSaveTokens (const bool /* a_track 
             // ... prepare HTTP client ...
             if ( nullptr == http_ ) {
                 http_ = new ::cc::easy::HTTPClient(loggable_data_);
+                http_->SetcURLedCallbacks({
+                    /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
+                    /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
+                }, /* TODO: */ true);
             }
             // ... set body ...
-            const ::cc::easy::JSON<::casper::job::InternalServerException> json;
+            const ::cc::easy::JSON<::cc::InternalServerError> json;
             Json::Value body = Json::Value(Json::ValueType::objectValue);
             body["access_token"]  = ede(tokens_.access_);
             body["refresh_token"] = ede(tokens_.refresh_);
@@ -205,14 +211,14 @@ void casper::proxy::worker::Deferred::ScheduleSaveTokens (const bool /* a_track 
             // ... nop - tokens already stored in memory ..
             break;
         default:
-            throw ::casper::job::InternalServerException("@ %s : Method " UINT8_FMT " - not implemented yet!",
-                                                         __FUNCTION__, static_cast<uint8_t>(arguments().parameters().type_)
+            throw ::cc::NotImplemented("@ %s : Method " UINT8_FMT " - not implemented yet!",
+                                       __FUNCTION__, static_cast<uint8_t>(arguments().parameters().type_)
             );
     }
 }
 
 /**
- * @brief Schedule an 'auhtorization request' operation.
+ * @brief Schedule an 'authorization request' operation.
  *
  * @param a_track  When true request will be tracked.
  * @param a_origin Caller function name.
@@ -222,6 +228,7 @@ void casper::proxy::worker::Deferred::ScheduleAuthorization (const bool a_track,
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
+    CC_DEBUG_ASSERT(true == Tracked());
     CC_DEBUG_ASSERT(nullptr != arguments_);
     CC_DEBUG_ASSERT(true == arguments().parameters().config_.oauth2_.m2m_);
     // ... mark ...
@@ -258,6 +265,7 @@ void casper::proxy::worker::Deferred::SchedulePerformRequest (const bool a_track
     if ( true == a_track ) {
         Track();
     }
+    CC_DEBUG_ASSERT(true == Tracked());
     // ... HTTP requests must be performed @ MAIN thread ...
     callbacks_.on_main_thread_([this]() {
         const auto& request = arguments().parameters().request_;
@@ -287,7 +295,7 @@ void casper::proxy::worker::Deferred::SchedulePerformRequest (const bool a_track
                 http_oauth2_->PATCH(request.url_, request.headers_, request.body_, callbacks, &request.timeouts_);
                 break;
             default:
-                throw casper::job::InternalServerException("Method '" UINT8_FMT "' not implemented!", static_cast<uint8_t>(request.method_));
+                throw ::cc::NotImplemented("Method '" UINT8_FMT "' not implemented!", static_cast<uint8_t>(request.method_));
         }
     });
 }
@@ -300,7 +308,9 @@ void casper::proxy::worker::Deferred::SchedulePerformRequest (const bool a_track
  */
 void casper::proxy::worker::Deferred::OnOAuth2TokensChanged ()
 {
+    // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
+    // ... push next operation to run after this one is successfully completed ...
     operations_.push_back(Deferred::Operation::SaveTokens);
 }
 
@@ -311,6 +321,7 @@ void casper::proxy::worker::Deferred::OnOAuth2TokensChanged ()
  */
 void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::HTTPClient::RawValue& a_value)
 {
+    // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
     // ... save response ...
     const std::string content_type = a_value.header_value("Content-Type");
@@ -318,17 +329,17 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
         std::map<std::string, std::string> headers;
         response_.Set(a_value.code(), content_type, a_value.headers_as_map(headers), a_value.body(), a_value.rtt());
     }
-    const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + operation_str_ + ( 200 == response_.code() ? "-succeeded-" : "-failed-" );
+    const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + operation_str_ + ( CC_EASY_HTTP_OK == response_.code() ? "-succeeded-" : "-failed-" );
     // ... parse response?
-    bool acceptable = ( 200 == response_.code() );
-    if ( std::string::npos != content_type.find("application/json") ) { // TODO: PARSE "application/vnd.api+json;charset=utf-8" ??
-        const ::cc::easy::JSON<::casper::job::InternalServerException> json;
+    bool acceptable = ( CC_EASY_HTTP_OK == response_.code() );
+    if ( ::cc::easy::JSON<::cc::InternalServerError>::IsJSON(content_type) ) {
+        const ::cc::easy::JSON<::cc::InternalServerError> json;
         switch(current_) {
             case Deferred::Operation::LoadTokens:
             {
                 response_.Parse();
                 // ... read tokens?
-                if ( 200 == response_.code() ) {
+                if ( CC_EASY_HTTP_OK == response_.code() ) {
                     const Json::Value& data = response_.json();
                     tokens_.type_    = json.Get(data, "token_type", Json::ValueType::stringValue, nullptr).asString();
                     tokens_.access_  = edd(json.Get(data, "access_token", Json::ValueType::stringValue, nullptr).asString());
@@ -357,7 +368,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
             {
                 response_.Parse();
                 // ... read tokens?
-                if ( 200 == response_.code() ) {
+                if ( CC_EASY_HTTP_OK == response_.code() ) {
                     const Json::Value& data = response_.json();
                     tokens_.access_ = json.Get(data, "access_token", Json::ValueType::stringValue, nullptr).asString();
                     const Json::Value& refresh_token = json.Get(data, "refresh_token", Json::ValueType::stringValue, &Json::Value::null);
@@ -384,14 +395,35 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
         }
     }
     // ... override 'acceptable' flag ...
-    if ( Deferred::Operation::LoadTokens == current_ && false == acceptable && 404 == response_.code() ) {
-        acceptable = true;
+    // ... and OAuth2 process should be restarted?
+    if ( false == acceptable ) {
+        switch(current_) {
+            case Deferred::Operation::LoadTokens:
+                // ... no tokens available ...
+                acceptable = ( CC_EASY_HTTP_NOT_FOUND == response_.code() );
+                // ... obtain new pair? ( no need to add save tokens operation - it will be added upon success )
+                if ( 0 == tokens_.access_.size() && true == acceptable && true == allow_oauth2_restart_ ) {
+                    operations_.insert(operations_.begin(), Deferred::Operation::RestartOAuth2);
+                }
+                break;
+            case Deferred::Operation::PerformRequest:
+                // ... tokens renewal problem ( refresh absent or expired ) ...
+                acceptable = ( CC_EASY_HTTP_UNAUTHORIZED == response_.code() );
+                if ( true == acceptable && true == allow_oauth2_restart_ ) {
+                    // ... forget all operations ...
+                    operations_.clear();
+                    // ... obtain new pair ( no need to add save tokens operation - it will be added upon success ) ...
+                    operations_.push_back(Deferred::Operation::RestartOAuth2);
+                    // ... replay failed request ...
+                    operations_.push_back(Deferred::Operation::PerformRequest);
+                }
+                break;
+            default:
+                // ... nothing to do here ...
+                break;
+        }
     }
-    // ... OAuth2 process should be restarted?
-    if ( Deferred::Operation::LoadTokens == current_ && 0 == tokens_.access_.size() && true == acceptable && true == allow_oauth2_restart_ ) {
-        operations_.insert(operations_.begin(), Deferred::Operation::RestartOAuth2);
-    }
-    // ... renewed tokens exception ...
+    // ... failed to renew tokens exception ...
     if ( false == acceptable && current_ != Deferred::Operation::SaveTokens ) {
         // ... if there's a pending operation to 'store' tokens ...
         const auto it = std::find_if(operations_.begin(), operations_.end(), [](const Deferred::Operation& a_operation) {
@@ -438,9 +470,9 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
     // ... finalize?
     if ( true == finalize ) {
         // ... exception: override 302 responses ...
-        if ( 302 == a_value.code() && Deferred::Operation::RestartOAuth2 == current_ ) {
+        if ( CC_EASY_HTTP_MOVED_TEMPORARILY == a_value.code() && Deferred::Operation::RestartOAuth2 == current_ ) {
             // TODO: check error string
-            response_.Set(500, "application/json", "{\error\":\"TODO\"}", a_value.rtt());
+            response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, "application/json", "{\error\":\"TODO\"}", a_value.rtt());
         } else {
             // ... 'main' target is 'PerformRequest' operation response ...
             const std::vector<Deferred::Operation> priority = {
@@ -463,7 +495,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
             callbacks_.on_log_deferred_debug_(this, "response/BODY: "  + a_value.body());
             callbacks_.on_log_deferred_debug_(this, "response/BODY/EXPECTED: JSON");
             // ... log error ...
-            if ( 200 != response_.code() ) {
+            if ( CC_EASY_HTTP_OK != response_.code() ) {
                 callbacks_.on_log_deferred_error_(this, a_value.body().c_str());
             }
             // ... notify ...
@@ -481,17 +513,20 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
  */
 void casper::proxy::worker::Deferred::OnHTTPRequestError (const ::cc::easy::HTTPClient::RawError& a_value)
 {
+    // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
+    // ... set response ...
     switch (a_value.code_) {
         case CURLE_OPERATION_TIMEOUTED:
             // 504 Gateway Timeout
-            response_.Set(504, "cURL: " + a_value.message());
+            response_.Set(CC_EASY_HTTP_GATEWAY_TIMEOUT, "cURL: " + a_value.message());
             break;
         default:
             // 500 Internal Server Error
-            response_.Set(500, a_value.message());
+            response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, a_value.message());
             break;
     }
+    // ... must be done on 'looper' thread ...
     callbacks_.on_looper_thread_(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + operation_str_ + "-error-", [this](const std::string&) {
         callbacks_.on_completed_(this);
         Untrack();
@@ -505,10 +540,52 @@ void casper::proxy::worker::Deferred::OnHTTPRequestError (const ::cc::easy::HTTP
  */
 void casper::proxy::worker::Deferred::OnHTTPRequestFailure (const ::cc::Exception& a_exception)
 {
+    // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
-    response_.Set(500, a_exception);
+    // ... set response ...
+    response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, a_exception);
+    // ... must be done on 'looper' thread ...
     callbacks_.on_looper_thread_(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + operation_str_ + "-failure-", [this](const std::string&) {
         callbacks_.on_completed_(this);
         Untrack();
     });
 }
+
+// MARK: -
+
+/**
+ * @brief Called by an HTTP client when it's time to log a request.
+ *
+ * @param a_request Request that will be running.
+ * @param a_data    cURL(ed) style command ( for log proposes only ).
+ */
+void casper::proxy::worker::Deferred::LogHTTPRequest (const ::ev::curl::Request&, const std::string& a_data)
+{
+    // ... (in)sanity checkpoint ...
+    CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
+    // ... must be done on 'looper' thread ...
+    const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-log-http-request";
+    callbacks_.on_looper_thread_(tag, [this, a_data] (const std::string&) {
+        // ... debug log ...
+        callbacks_.on_log_deferred_debug_(this, a_data);
+    });
+}
+
+/**
+ * @brief Called by an HTTP client when it's time to log a request.
+ *
+ * @param a_value Post request execution, result data.
+ * @param a_data    cURL(ed) style response data ( for log proposes only ).
+ */
+void casper::proxy::worker::Deferred::LogHTTPValue (const ::ev::curl::Value& a_value, const std::string& a_data)
+{
+    // ... (in)sanity checkpoint ...
+    CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
+    // ... must be done on 'looper' thread ...
+    const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-log-http-response";
+    callbacks_.on_looper_thread_(tag, [this, a_data] (const std::string&) {
+        // ... debug log ...
+        callbacks_.on_log_deferred_debug_(this, a_data);
+    });
+}
+

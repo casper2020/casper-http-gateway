@@ -69,10 +69,11 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
     // ... sanity check ...
     CC_DEBUG_ASSERT(0 == providers_.size());
     //
-    const ::cc::easy::JSON<::casper::job::InternalServerException> json;
+    const ::cc::easy::JSON<::cc::InternalServerError> json;
     // memory managed by base class
     d_.dispatcher_                    = new casper::proxy::worker::Dispatcher(loggable_data_ CC_IF_DEBUG_CONSTRUCT_APPEND_PARAM_VALUE(thread_id_));
-    d_.on_deferred_request_completed_ = std::bind(&casper::proxy::worker::OAuth2Client::OnDeferredRequestCompleted, this, std::placeholders::_1, std::placeholders::_2);;
+    d_.on_deferred_request_completed_ = std::bind(&casper::proxy::worker::OAuth2Client::OnDeferredRequestCompleted, this, std::placeholders::_1, std::placeholders::_2);
+    d_.on_deferred_request_failed_    = std::bind(&casper::proxy::worker::OAuth2Client::OnDeferredRequestFailed   , this, std::placeholders::_1, std::placeholders::_2);
     // ...
     const auto object2headers = [&json] (const Json::Value& a_object) -> std::map<std::string, std::vector<std::string>> {
         std::map<std::string, std::vector<std::string>> h;
@@ -143,7 +144,7 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                         })
                     });
                 } else {
-                    throw ::casper::job::InternalServerException("Unknown provider type '%s'!", type_ref.asCString());
+                    throw ::cc::InternalServerError("Unknown provider type '%s'!", type_ref.asCString());
                 }
                 providers_[name] = p_config;
                 p_config = nullptr;
@@ -175,9 +176,9 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
  */
 void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const Json::Value& a_payload, cc::easy::job::Job::Response& o_response)
 {
-    const ::cc::easy::JSON<::casper::job::BadRequestException> json;
+    const ::cc::easy::JSON<::cc::BadRequest> json;
     // ... assuming BAD REQUEST ...
-    o_response.code_ = 400;
+    o_response.code_ = CC_STATUS_CODE_BAD_REQUEST;
 
     //
     // IN payload:
@@ -199,7 +200,7 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
     const Json::Value& provider  = json.Get(payload, "provider" , Json::ValueType::stringValue, nullptr);
     const auto& provider_it = providers_.find(provider.asString());
     if ( providers_.end() == provider_it ) {
-        throw ::casper::job::BadRequestException("Unknown provider '%s'!", provider.asCString());
+        throw ::cc::BadRequest("Unknown provider '%s'!", provider.asCString());
     }
     // ... prepare tracking info ...
     const ::casper::job::deferrable::Tracking tracking = {
@@ -214,7 +215,7 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
     // TODO: v8 all
     // ... prepare request ...
     {
-        const ::cc::easy::JSON<::casper::job::BadRequestException> json;
+        const ::cc::easy::JSON<::cc::BadRequest> json;
         
         const auto& http = arguments.parameters().data_;
         const Json::Value& url_ref      = json.Get(http, "url"     , Json::ValueType::stringValue, nullptr);
@@ -328,9 +329,9 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
                 cfg_headers = &provider_it->second->storage_->headers_;
                 stg_headers = &params.storage_.headers_;
             } else if ( proxy::worker::Config::Type::Storageless == arguments.parameters().type_ ) {
-                throw ::casper::job::InternalServerException("%s", "NOT Implemented YET!");
+                throw ::cc::NotImplemented("%s", "NOT Implemented YET!");
             } else {
-                throw ::casper::job::BadRequestException("Unsupported config type " UINT8_FMT "!", static_cast<uint8_t>(arguments.parameters().type_));
+                throw ::cc::BadRequest("Unsupported config type " UINT8_FMT "!", static_cast<uint8_t>(arguments.parameters().type_));
             }
             // ... override and / or merge headers?
             if ( nullptr != cfg_headers ) {
@@ -353,7 +354,7 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
                                                                                                   ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>::Status::InProgress,
                                                                                                   sk_i18n_in_progress_.key_, sk_i18n_in_progress_.arguments_);
     // ... accepted ...
-    o_response.code_ = 200;
+    o_response.code_ = CC_STATUS_CODE_OK;
     // ... but it will be deferred ...
     SetDeferred();
 }
@@ -394,7 +395,66 @@ uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestCompleted (const 
         o_payload["data"] = ss.str();
     } else {
         // ... body ...
-        if ( 0 == strncasecmp(response.content_type().c_str(), "content-type: application/json", sizeof(char) * 30) ) {
+        if ( true == ::cc::easy::JSON<::cc::Exception>::IsJSON(response.content_type()) ) {
+            const ::cc::easy::JSON<::cc::Exception> json;
+            json.Parse(response.body(), o_payload["body"]);
+        } else {
+            o_payload["body"] = response.body();
+        }
+        // ... headers ...
+        o_payload["headers"] = Json::Value(Json::ValueType::objectValue);
+        for ( auto header : response.headers() ) {
+            o_payload["headers"][header.first] = header.second;
+        }
+        // ... code ...
+        o_payload["code"] = response.code();
+    }
+    // ... done ...
+    return code;
+}
+
+/**
+ * @brief Called by 'deferred' request when it's completed but status code is NOT 200.
+ *
+ * @param a_deferred Deferred request data.
+ * @param o_payload  JSON response to fill.
+ *
+ * @return HTTP Status code:
+ *         - if returns 0 don't finalize job now ( still work to do );
+ *         - if no 0, or if an exception is catched finalize job immediatley.
+ */
+uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestFailed (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload)
+{
+    const auto     response = a_deferred->response();
+    const uint16_t code     = response.code();
+    // ... set payload ...
+    o_payload = Json::Value(Json::ValueType::objectValue);
+    // ... primitive or default?
+    if ( true == a_deferred->arguments().parameters().primitive_ ) {
+        // ... gateway response mode ....
+        // !<status-code-int-value>,<content-type-length-in-bytes>,<content-type-string-value>,<headers-length-bytes>,<headers>,<body-length-bytes>,<body>
+        std::stringstream ss;
+        ss << '!' << response.code() << ',' << response.content_type().length() << ',' << response.content_type();
+        // ... body ...
+        const auto exception = a_deferred->response().exception();
+        if ( nullptr != exception ) {
+            ss << ',' << strlen(exception->what()) << ',' << exception->what();
+        } else {
+            ss << ',' << response.body().length() << ',' << response.body();
+        }
+        // ... headers ...
+        {
+            std::string v = "";
+            for ( auto header : a_deferred->response().headers() ) {
+                v = header.first + ":" + header.second;
+                ss << ',' << v.length() << ',' << v;
+            }
+        }
+        // ... data ...
+        o_payload["data"] = ss.str();
+    } else {
+        // ... body ...
+        if ( true == ::cc::easy::JSON<::cc::Exception>::IsJSON(response.content_type()) ) {
             const ::cc::easy::JSON<::cc::Exception> json;
             json.Parse(response.body(), o_payload["body"]);
         } else {
@@ -414,9 +474,17 @@ uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestCompleted (const 
 
 // MARK: - Method(s) / Function(s) -  V8 Helper(s)
 
+/**
+ * @brief Evaluate a V8 expression.
+ *
+ * @param a_id         JOB beanstalkd id.
+ * @param a_expression Expression to evaluate.
+ * @param a_data       Data to load ( to be used during expression evaluation ).
+ * @param o_value      Evaluation result.
+ */
 void casper::proxy::worker::OAuth2Client::Evaluate (const uint64_t& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const
 {
-    const ::cc::easy::JSON<::casper::job::BadRequestException> json;
+    const ::cc::easy::JSON<::cc::BadRequest> json;
     try {
         ::v8::Persistent<::v8::Value> data; ::cc::v8::Value value;
         script_->SetData(/* a_name  */ ( std::to_string(a_id) + "-v8-data" ).c_str(),
@@ -434,10 +502,9 @@ void casper::proxy::worker::OAuth2Client::Evaluate (const uint64_t& a_id, const 
                 o_value = value.AsString();
                 break;
             default:
-                throw ::casper::job::BadRequestException("Unexpected // unsupported v8 evaluation result type of %u ", value.type());
+                throw ::cc::BadRequest("Unexpected // unsupported v8 evaluation result type of %u ", value.type());
         }
     } catch (const ::cc::v8::Exception& a_v8_exception) {
-        throw ::casper::job::BadRequestException("%s", a_v8_exception.what());
+        throw ::cc::BadRequest("%s", a_v8_exception.what());
     }
 }
-

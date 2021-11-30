@@ -94,6 +94,11 @@ namespace casper
                 void OnHTTPRequestCompleted     (const ::cc::easy::HTTPClient::RawValue& a_value);
                 void OnHTTPRequestError         (const ::cc::easy::HTTPClient::RawError& a_error);
                 void OnHTTPRequestFailure       (const ::cc::Exception& a_exception);
+                
+            private: // Method(s) / Function(s) - HTTP && OAuth2 HTTP Client Logging Callbacks
+
+                void LogHTTPRequest (const ::ev::curl::Request&, const std::string&);
+                void LogHTTPValue   (const ::ev::curl::Value&, const std::string&);
 
             }; // end of class 'Deferred'
 
