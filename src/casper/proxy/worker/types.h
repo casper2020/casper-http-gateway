@@ -163,6 +163,7 @@ namespace casper
                 const ::cc::easy::OAuth2HTTPClient::Config& config_;
                 const Json::Value&                          data_;
                 const bool                                  primitive_;
+                const int                                   log_level_;
                 
             public: // Data
                 
@@ -181,11 +182,12 @@ namespace casper
                  * @param a_config    Ref to R/O config.
                  * @param a_data     JSON object.
                  * @param a_primitive True when response should be done in 'primitive' mode.
+                 * @param a_log_level Log level.
                  */
                 Parameters (const Config::Type a_type,
                             const ::cc::easy::OAuth2HTTPClient::Config& a_config,
-                            const Json::Value& a_data, const bool a_primitive)
-                 : type_(a_type), config_(a_config), data_(a_data), primitive_(a_primitive),
+                            const Json::Value& a_data, const bool a_primitive, const int a_log_level)
+                 : type_(a_type), config_(a_config), data_(a_data), primitive_(a_primitive), log_level_(a_log_level),
                    storage_({
                        /* method_   */ ::ev::curl::Request::HTTPRequestType::NotSet,
                        /* url_      */ "",
@@ -210,7 +212,7 @@ namespace casper
                  * @param a_parameters Object to copy.
                  */
                 Parameters (const Parameters& a_parameters)
-                 : type_(a_parameters.type_), config_(a_parameters.config_), data_(a_parameters.data_), primitive_(a_parameters.primitive_),
+                 : type_(a_parameters.type_), config_(a_parameters.config_), data_(a_parameters.data_), primitive_(a_parameters.primitive_), log_level_(a_parameters.log_level_),
                    storage_(a_parameters.storage_), request_(a_parameters.request_),
                    tokens_(a_parameters.tokens_)
                 {

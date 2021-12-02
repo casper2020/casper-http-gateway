@@ -27,6 +27,7 @@
 #include "casper/proxy/worker/types.h"
 
 #include "cc/easy/http.h"
+#include "cc/bitwise_enum.h"
 
 #include <vector>
 
@@ -51,6 +52,20 @@ namespace casper
                     PerformRequest,
                     SaveTokens
                 };
+                
+                enum class HTTPOptions : uint8_t {
+                    NotSet    = 0,
+                    Log       = 1 << 0,
+                    Trace     = 1 << 1,
+                    Redact    = 1 << 2,
+                    OAuth2    = 1 << 3,
+                    NonOAuth2 = 1 << 4
+                };
+                
+                typedef struct {
+                    const uint16_t    code_; //!< != 0 it's a response
+                    const std::string data_; //!< if code is NOT 0 it's request data otherwise it's response.
+                } HTTPTrace;
 
             private: // Const Data
 
@@ -61,6 +76,8 @@ namespace casper
                 ::cc::easy::HTTPClient*              http_;
                 ::cc::easy::OAuth2HTTPClient*        http_oauth2_;
                 ::cc::easy::OAuth2HTTPClient::Tokens tokens_;
+                HTTPOptions                          http_options_;
+                std::vector<HTTPTrace>               http_trace_;
 
             private: // Data
 
@@ -68,7 +85,7 @@ namespace casper
                 std::vector<Operation>                          operations_;    //!< Chained operations.
                 std::string                                     operation_str_; //!< Current operation, string representation.
                 std::map<Operation, job::deferrable::Response>  responses_;     //!< Operations responses.
-                bool                                 allow_oauth2_restart_;
+                bool                                            allow_oauth2_restart_;
 
             public: // Constructor(s) / Destructor
 
@@ -86,7 +103,7 @@ namespace casper
                 void ScheduleSaveTokens           (const bool a_track, const char* const a_origin, const size_t a_delay);
                 void ScheduleAuthorization        (const bool a_track, const char* const a_origin, const size_t a_delay);
                 void SchedulePerformRequest       (const bool a_track, const char* const a_origin, const size_t a_delay);
-
+                void Finalize                     (const std::string& a_tag);
 
             private: // Method(s) / Function(s) - HTTP && OAuth2 HTTP Client Request(s) Callbacks
 
@@ -100,12 +117,22 @@ namespace casper
                 void LogHTTPRequest (const ::ev::curl::Request&, const std::string&);
                 void LogHTTPValue   (const ::ev::curl::Value&, const std::string&);
 
+                void LogHTTPOAuth2ClientRequest (const ::ev::curl::Request&, const std::string&);
+                void LogHTTPOAuth2ClientValue   (const ::ev::curl::Value&, const std::string&);
+
+            private: //  Method(s) / Function(s) - HTTP && OAuth2 HTTP Clients Callback(s)
+                
+                void OnHTTPRequestWillRunLogIt (const ::ev::curl::Request&, const std::string&, const HTTPOptions);
+                void OnHTTPRequestSteppedLogIt (const ::ev::curl::Value&, const std::string&, const HTTPOptions);
+
             }; // end of class 'Deferred'
 
             inline std::string MakeID (const ::casper::job::deferrable::Tracking& a_tracking)
             {
                 return a_tracking.rcid_;
             }
+        
+            DEFINE_ENUM_WITH_BITWISE_OPERATORS(Deferred::HTTPOptions);
         
         } // end of namespace 'worker'
     

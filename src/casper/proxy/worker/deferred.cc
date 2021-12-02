@@ -45,6 +45,7 @@ casper::proxy::worker::Deferred::Deferred (const casper::job::deferrable::Tracki
         /* on_change_  */ nullptr
     })
 {
+    http_options_         = HTTPOptions::OAuth2 | HTTPOptions::Trace | HTTPOptions::Redact;
     current_              = Deferred::Operation::NotSet;
     allow_oauth2_restart_ = false;
 }
@@ -73,11 +74,25 @@ void casper::proxy::worker::Deferred::Run (const casper::proxy::worker::Argument
     // ... (in)sanity checkpoint ...
     CC_DEBUG_ASSERT(nullptr == http_ && nullptr == http_oauth2_ && nullptr == arguments_);
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
+    // ... update http options ...
+    if ( a_args.parameters().log_level_ >= 5 /* CC_JOB_LOG_LEVEL_VBS 5 // VERBOSE */  ) {
+        http_options_ |= HTTPOptions::Log;
+        // ... log storage related requests?
+        if ( a_args.parameters().log_level_ >= 6 ) {
+            http_options_ |= HTTPOptions::NonOAuth2;
+        }
+    }
     // ... keep track of arguments and callbacks ...
     arguments_ = new casper::proxy::worker::Arguments(a_args);
     callbacks_ = a_callbacks;    
     // ... prepare HTTP client ...
     http_oauth2_ = new ::cc::easy::OAuth2HTTPClient(loggable_data_, arguments_->parameters().config_, tokens_);
+    if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
+        http_oauth2_->SetcURLedCallbacks({
+            /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientRequest, this, std::placeholders::_1, std::placeholders::_2),
+            /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientValue  , this, std::placeholders::_1, std::placeholders::_2)
+        }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
+    }
     tokens_.on_change_ = std::bind(&casper::proxy::worker::Deferred::OnOAuth2TokensChanged, this);
     // ... first, load tokens from DB ...
     ScheduleLoadTokens(true, nullptr, 0);
@@ -117,10 +132,12 @@ void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track 
             arguments().parameters().storage_.method_ = ::ev::curl::Request::HTTPRequestType::GET;
             // ... prepare HTTP client ...
             http_ = new ::cc::easy::HTTPClient(loggable_data_);
-            http_->SetcURLedCallbacks({
-                /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
-                /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
-            }, /* TODO: */ true);
+            if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
+                http_->SetcURLedCallbacks({
+                    /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
+                    /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
+                }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
+            }
             // ... HTTP requests must be performed @ MAIN thread ...
             callbacks_.on_main_thread_([this]() {
                 const auto& params  = arguments().parameters();
@@ -180,10 +197,12 @@ void casper::proxy::worker::Deferred::ScheduleSaveTokens (const bool /* a_track 
             // ... prepare HTTP client ...
             if ( nullptr == http_ ) {
                 http_ = new ::cc::easy::HTTPClient(loggable_data_);
-                http_->SetcURLedCallbacks({
-                    /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
-                    /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
-                }, /* TODO: */ true);
+                if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
+                    http_->SetcURLedCallbacks({
+                        /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
+                        /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
+                    }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
+                }
             }
             // ... set body ...
             const ::cc::easy::JSON<::cc::InternalServerError> json;
@@ -300,6 +319,29 @@ void casper::proxy::worker::Deferred::SchedulePerformRequest (const bool a_track
     });
 }
 
+/**
+ * @brief Call this method when it's time to signal that this request is now completed.
+ *
+ * @param a_tag Callback tag.
+ */
+void casper::proxy::worker::Deferred::Finalize (const std::string& a_tag)
+{
+    // ... (in)sanity checkpoint ...
+    CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
+    // ... must be done on 'looper' thread ...
+    callbacks_.on_looper_thread_(a_tag, [this] (const std::string&) {
+        // ... if request failed, and if we're tracing and did not log HTTP calls, should we do it now?
+        if ( CC_EASY_HTTP_OK != response_.code() && HTTPOptions::Trace == ( HTTPOptions::Trace & http_options_ ) && not ( HTTPOptions::Log == ( HTTPOptions::Log & http_options_ ) ) ) {
+            for ( const auto& trace : http_trace_ ) {
+                callbacks_.on_log_deferred_debug_(this, trace.data_);
+            }
+        }
+        // ... notify ...
+        callbacks_.on_completed_(this);
+        // ... done ...
+        Untrack();
+    });
+}
 
 // MARK: - HTTP && OAuth2 HTTP Clients
 
@@ -488,21 +530,8 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
                 }
             }
         }
-        // ... must be done on 'looper' thread ...
-        callbacks_.on_looper_thread_(tag, [this, a_value] (const std::string&) {
-            // ... debug log ...
-            callbacks_.on_log_deferred_debug_(this, "response/CODE: "  + std::to_string(a_value.code()));
-            callbacks_.on_log_deferred_debug_(this, "response/BODY: "  + a_value.body());
-            callbacks_.on_log_deferred_debug_(this, "response/BODY/EXPECTED: JSON");
-            // ... log error ...
-            if ( CC_EASY_HTTP_OK != response_.code() ) {
-                callbacks_.on_log_deferred_error_(this, a_value.body().c_str());
-            }
-            // ... notify ...
-            callbacks_.on_completed_(this);
-            // ... done ...
-            Untrack();
-        });
+        // ... finalize ...
+        Finalize(tag);
     }
 }
 
@@ -526,11 +555,8 @@ void casper::proxy::worker::Deferred::OnHTTPRequestError (const ::cc::easy::HTTP
             response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, a_value.message());
             break;
     }
-    // ... must be done on 'looper' thread ...
-    callbacks_.on_looper_thread_(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + operation_str_ + "-error-", [this](const std::string&) {
-        callbacks_.on_completed_(this);
-        Untrack();
-    });
+    // ... finalize ...
+    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + operation_str_ + "-error-");
 }
 
 /**
@@ -544,14 +570,11 @@ void casper::proxy::worker::Deferred::OnHTTPRequestFailure (const ::cc::Exceptio
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
     // ... set response ...
     response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, a_exception);
-    // ... must be done on 'looper' thread ...
-    callbacks_.on_looper_thread_(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + operation_str_ + "-failure-", [this](const std::string&) {
-        callbacks_.on_completed_(this);
-        Untrack();
-    });
+    // ... finalize ...
+    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + operation_str_ + "-failure-");
 }
 
-// MARK: -
+// MARK: - HTTP Client Callbacks
 
 /**
  * @brief Called by an HTTP client when it's time to log a request.
@@ -559,16 +582,9 @@ void casper::proxy::worker::Deferred::OnHTTPRequestFailure (const ::cc::Exceptio
  * @param a_request Request that will be running.
  * @param a_data    cURL(ed) style command ( for log proposes only ).
  */
-void casper::proxy::worker::Deferred::LogHTTPRequest (const ::ev::curl::Request&, const std::string& a_data)
+void casper::proxy::worker::Deferred::LogHTTPRequest (const ::ev::curl::Request& a_request, const std::string& a_data)
 {
-    // ... (in)sanity checkpoint ...
-    CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
-    // ... must be done on 'looper' thread ...
-    const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-log-http-request";
-    callbacks_.on_looper_thread_(tag, [this, a_data] (const std::string&) {
-        // ... debug log ...
-        callbacks_.on_log_deferred_debug_(this, a_data);
-    });
+    OnHTTPRequestWillRunLogIt(a_request, a_data, ( ( http_options_ &~ HTTPOptions::OAuth2 ) | HTTPOptions::NonOAuth2 ));
 }
 
 /**
@@ -579,13 +595,105 @@ void casper::proxy::worker::Deferred::LogHTTPRequest (const ::ev::curl::Request&
  */
 void casper::proxy::worker::Deferred::LogHTTPValue (const ::ev::curl::Value& a_value, const std::string& a_data)
 {
-    // ... (in)sanity checkpoint ...
-    CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
-    // ... must be done on 'looper' thread ...
-    const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-log-http-response";
-    callbacks_.on_looper_thread_(tag, [this, a_data] (const std::string&) {
-        // ... debug log ...
-        callbacks_.on_log_deferred_debug_(this, a_data);
-    });
+    OnHTTPRequestSteppedLogIt(a_value, a_data, ( ( http_options_ &~ HTTPOptions::OAuth2 ) | HTTPOptions::NonOAuth2 ));
 }
 
+// MARK: - HTTP OAuth2 Client Callbacks
+
+/**
+ * @brief Called by an HTTP client when it's time to log a request.
+ *
+ * @param a_request Request that will be running.
+ * @param a_data    cURL(ed) style command ( for log proposes only ).
+ */
+void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientRequest (const ::ev::curl::Request& a_request, const std::string& a_data)
+{
+    OnHTTPRequestWillRunLogIt(a_request, a_data, ( ( http_options_ &~ HTTPOptions::NonOAuth2 ) | HTTPOptions::OAuth2 ));
+}
+
+/**
+ * @brief Called by an HTTP client when it's time to log a request.
+ *
+ * @param a_value Post request execution, result data.
+ * @param a_data  cURL(ed) style response data ( for log proposes only ).
+ */
+void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientValue (const ::ev::curl::Value& a_value, const std::string& a_data)
+{
+    OnHTTPRequestSteppedLogIt(a_value, a_data, ( ( http_options_ &~ HTTPOptions::NonOAuth2 ) | HTTPOptions::OAuth2 ));
+}
+
+/**
+ * @brief Called by an HTTP client when a request will run and it's time to log data ( ⚠️ for logging proposes only, request has not started yet ! )
+ *
+ * @param a_request Request that will be running.
+ * @param a_data    cURL(ed) style command ( for log proposes only ).
+ * @param a_options Adjusted options for this request, for more info See \link proxy::worker::Deferred::HTTPOptions \link.
+
+ */
+void casper::proxy::worker::Deferred::OnHTTPRequestWillRunLogIt (const ::ev::curl::Request& /* a_request */, const std::string& a_data, const proxy::worker::Deferred::HTTPOptions a_options)
+{
+    // ... (in)sanity checkpoint ...
+    CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
+    //... make sure that we're tracing or logging if it was requested to do it so ..
+    if (
+        ( ( HTTPOptions::Trace == ( HTTPOptions::Trace & a_options ) || ( HTTPOptions::Trace == ( HTTPOptions::Log & a_options ) ) ) )
+                &&
+        (
+            ( HTTPOptions::OAuth2 == ( HTTPOptions::OAuth2 & a_options ) && HTTPOptions::OAuth2 == ( HTTPOptions::OAuth2 & http_options_ ) )
+                ||
+            ( HTTPOptions::NonOAuth2 == ( HTTPOptions::NonOAuth2 & a_options ) && HTTPOptions::NonOAuth2 == ( HTTPOptions::NonOAuth2 & http_options_ ) )
+        )
+    ) {
+        // ... must be done on 'looper' thread ...
+        const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-log-http-oauth2-client-response";
+        callbacks_.on_looper_thread_(tag, [this, a_data, a_options] (const std::string&) {
+            // ... log?
+            if ( HTTPOptions::Log == ( HTTPOptions::Log & a_options ) ) {
+                callbacks_.on_log_deferred_debug_(this, a_data);
+            } else { // assuming trace
+                http_trace_.push_back({
+                    /* code_ */ 0,
+                    /* data_ */ a_data
+                });
+            }
+        });
+    }
+}
+
+/**
+ * @brief Called by an HTTP client when a request did run and it's time to log data ( ⚠️ for logging proposes only, request is it's not completed ! )
+ *
+ * @param a_value   Request post-execution, result data.
+ * @param a_data    cURL(ed) style response data ( for log proposes only ).
+ * @param a_options Adjusted options for this value, for more info See \link proxy::worker::Deferred::HTTPOptions \link.
+ */
+void casper::proxy::worker::Deferred::OnHTTPRequestSteppedLogIt (const ::ev::curl::Value& a_value, const std::string& a_data, const proxy::worker::Deferred::HTTPOptions a_options)
+{
+    // ... (in)sanity checkpoint ...
+    CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
+    //... make sure that we're tracing or logging if it was requested to do it so ..
+    if (
+        ( ( HTTPOptions::Trace == ( HTTPOptions::Trace & a_options ) || ( HTTPOptions::Trace == ( HTTPOptions::Log & a_options ) ) ) )
+                &&
+        (
+            ( HTTPOptions::OAuth2 == ( HTTPOptions::OAuth2 & a_options ) && HTTPOptions::OAuth2 == ( HTTPOptions::OAuth2 & http_options_ ) )
+                ||
+            ( HTTPOptions::NonOAuth2 == ( HTTPOptions::NonOAuth2 & a_options ) && HTTPOptions::NonOAuth2 == ( HTTPOptions::NonOAuth2 & http_options_ ) )
+        )
+    ) {
+        const uint16_t code = a_value.code();
+        // ... must be done on 'looper' thread ...
+        const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-log-http-oauth2-client-response";
+        callbacks_.on_looper_thread_(tag, [this, a_data, a_options, code] (const std::string&) {
+            // ... log?
+            if ( HTTPOptions::Log == ( HTTPOptions::Log & a_options ) ) {
+                callbacks_.on_log_deferred_debug_(this, a_data);
+            } else { // assuming trace
+                http_trace_.push_back({
+                    /* code_ */ code,
+                    /* data_ */ a_data
+                });
+            }
+        });
+    }
+}

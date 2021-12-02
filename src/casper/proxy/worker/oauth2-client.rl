@@ -36,7 +36,7 @@ const Json::Value casper::proxy::worker::OAuth2Client::sk_behaviour_ = "default"
  * param a_config
  */
 casper::proxy::worker::OAuth2Client::OAuth2Client (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config)
-    : ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>("OHC", sk_tube_, a_loggable_data, a_config)
+    : ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>("OHC", sk_tube_, a_loggable_data, a_config, /* a_sequentiable */ false)
 {
     script_ = nullptr;
 }
@@ -211,7 +211,13 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
         /* dpi_  */ "CPW",
     };
     // TODO: v8 here!
-    casper::proxy::worker::Arguments arguments({provider_it->second->type_, provider_it->second->http_, http, ( true == broker && 0 == strcasecmp("gateway",  behaviour.asCString()) )});
+    casper::proxy::worker::Arguments arguments({
+        /* a_type      */ provider_it->second->type_,
+        /* a_config    */ provider_it->second->http_,
+        /* a_data      */ http,
+        /* a_primitive */ ( true == broker && 0 == strcasecmp("gateway",  behaviour.asCString()) ),
+        /* a_log_level */ config_.log_level()
+    });
     // TODO: v8 all
     // ... prepare request ...
     {
