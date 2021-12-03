@@ -75,7 +75,6 @@ namespace casper
 
                 ::cc::easy::HTTPClient*              http_;
                 ::cc::easy::OAuth2HTTPClient*        http_oauth2_;
-                ::cc::easy::OAuth2HTTPClient::Tokens tokens_;
                 HTTPOptions                          http_options_;
                 std::vector<HTTPTrace>               http_trace_;
 

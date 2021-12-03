@@ -56,33 +56,44 @@ namespace casper
             
             public: // Data Type(s)
                 
-                typedef std::map<std::string, std::vector<std::string>> Headers;
+                typedef ::ev::curl::Request::Headers  Headers;
+                typedef ::ev::curl::Request::Timeouts Timeouts;
                 
                 typedef struct {
                     std::string tokens_;
                 } StorageEndpoints;
                 
                 typedef struct {
-                    Headers          headers_;
                     StorageEndpoints endpoints_;
                     Json::Value      arguments_;
+                    Headers          headers_;
+                    Timeouts         timeouts_;
                 } Storage;
                 
                 typedef struct {
-                    Headers headers_;
+                    Headers                              headers_;
+                    ::cc::easy::OAuth2HTTPClient::Tokens tokens_;
                 } Storageless;
                 
                 typedef Json::Value Signing;
                 
             public: // Const Data
                 
-                const Type                                 type_;
-                const ::cc::easy::OAuth2HTTPClient::Config http_;
+                const Type                                 type_;           //!< Config type, one of \link Type \link.
+                const ::cc::easy::OAuth2HTTPClient::Config http_;           //!< OAuth2 configs
                 const Headers                              headers_;        //!< additional headers per request
                 const Signing                              signing_;        //!< signing configs
-                const Storage*                             storage_;
-                const Storageless*                         storageless_;
                 
+            private: // Data
+                
+                Storage*                                   storage_;        //!< storage config
+
+            private: // Data
+                
+                Storageless*                               storageless_;    //!< storageless config
+
+            private: // Data
+                                
             public: // Constructor(s) / Destructor
                 
                 Config () = delete;
@@ -113,8 +124,14 @@ namespace casper
                 Config (const ::cc::easy::OAuth2HTTPClient::Config& a_config, const Headers& a_headers, const Signing& a_signing, const Storageless& a_storageless)
                  : type_(Type::Storageless), http_(a_config), headers_(a_headers), signing_(a_signing)
                 {
-                    storage_     = nullptr;
-                    storageless_ = new Storageless(a_storageless);
+                    storage_                          = nullptr;
+                    storageless_                      = new Storageless(a_storageless);
+                    storageless_->tokens_.type_       = "";
+                    storageless_->tokens_.access_     = "";
+                    storageless_->tokens_.refresh_    = "";
+                    storageless_->tokens_.expires_in_ =  0;
+                    storageless_->tokens_.scope_      = "";
+                    storageless_->tokens_.on_change_  = nullptr;
                 }
                 
                 /**
@@ -134,13 +151,54 @@ namespace casper
                  */
                 virtual ~Config ()
                 {
-                    /* empty */
+                    if ( nullptr != storage_ ) {
+                        delete storage_;
+                    }
+                    if ( nullptr != storageless_ ) {
+                        delete storageless_;
+                    }
                 }
                 
+            public: // Inline Method(s) / Function(s)
+                
+                /**
+                 * @return R/O access to storage configs.
+                 */
+                inline const Storage& storage () const
+                {
+                    if ( nullptr != storage_ ) {
+                        return *storage_;
+                    }
+                    throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                }
+                
+                /**
+                 * @return R/O access to storageless configs.
+                 */
+                inline const Storageless& storageless () const
+                {
+                    if ( nullptr != storageless_ ) {
+                        return *storageless_;
+                    }
+                    throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                }
+                
+                /**
+                 * @brief Prepare storageless config, exception for better tracking of variables write acccess.
+                 *
+                 * @return R/O access to storageless configs.
+                 */
+                inline const Storageless& storageless (const std::function<void(Storageless&)>& a_callback)
+                {
+                    if ( nullptr != storageless_ ) {
+                        return *storageless_;
+                    }
+                    throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                }
+
             public: // Overloaded Operator(s)
                 
                 void operator = (Config const&)  = delete;  // assignment is not allowed
-
                 
             }; // end of class 'Config'
 
@@ -155,21 +213,30 @@ namespace casper
                     std::string                          body_;
                     ::ev::curl::Request::Headers         headers_;
                     ::ev::curl::Request::Timeouts        timeouts_;
-                } Request;
+                } Storage;
 
+                typedef struct {
+                    ::ev::curl::Request::HTTPRequestType method_;
+                    std::string                          url_;
+                    std::string                          body_;
+                    ::ev::curl::Request::Headers         headers_;
+                    ::ev::curl::Request::Timeouts        timeouts_;
+                    ::cc::easy::OAuth2HTTPClient::Tokens tokens_;
+                } Request;
+                
             public: // Const Data
                 
+                const std::string                           id_;
                 const Config::Type                          type_;
                 const ::cc::easy::OAuth2HTTPClient::Config& config_;
                 const Json::Value&                          data_;
                 const bool                                  primitive_;
                 const int                                   log_level_;
                 
-            public: // Data
+            private: // Data
                 
-                Request                                     storage_; //!< Evaluated storage request data.
+                Storage*                                    storage_; //!< Evaluated storage request data.
                 Request                                     request_; //!< Evaluated request data.
-                ::cc::easy::OAuth2HTTPClient::Tokens        tokens_;
                 
             public: // Constructor(s) / Destructor
                 
@@ -178,29 +245,33 @@ namespace casper
                 /**
                  * @brief Default constructor.
                  *
+                 * @param a_id        Provider ID.
                  * @param a_type      One of \link Config::Type \link.
                  * @param a_config    Ref to R/O config.
-                 * @param a_data     JSON object.
+                 * @param a_data      JSON object.
                  * @param a_primitive True when response should be done in 'primitive' mode.
                  * @param a_log_level Log level.
                  */
-                Parameters (const Config::Type a_type,
+                Parameters (const std::string& a_id,
+                            const Config::Type a_type,
                             const ::cc::easy::OAuth2HTTPClient::Config& a_config,
                             const Json::Value& a_data, const bool a_primitive, const int a_log_level)
-                 : type_(a_type), config_(a_config), data_(a_data), primitive_(a_primitive), log_level_(a_log_level),
-                   storage_({
-                       /* method_   */ ::ev::curl::Request::HTTPRequestType::NotSet,
-                       /* url_      */ "",
-                       /* body_     */ "",
-                       /* headers_  */ {},
-                       /* timeouts_ */ { -1, -1 }
-                   }),
+                 : id_(a_id), type_(a_type), config_(a_config), data_(a_data), primitive_(a_primitive), log_level_(a_log_level),
+                   storage_(nullptr),
                    request_({
                        /* method_   */ ::ev::curl::Request::HTTPRequestType::NotSet,
                        /* url_      */ "",
                        /* body_     */ "",
                        /* headers_  */ {},
-                       /* timeouts_ */ { -1, -1 }
+                       /* timeouts_ */ { -1, -1 },
+                       /* tokens_   */ {
+                           /* type_       */ "",
+                           /* access_     */ "",
+                           /* refresh_    */ "",
+                           /* expires_in_ */  0,
+                           /* scope_      */ "",
+                           /* on_change_  */ nullptr
+                        }
                    })
                 {
                     /* empty */
@@ -212,11 +283,12 @@ namespace casper
                  * @param a_parameters Object to copy.
                  */
                 Parameters (const Parameters& a_parameters)
-                 : type_(a_parameters.type_), config_(a_parameters.config_), data_(a_parameters.data_), primitive_(a_parameters.primitive_), log_level_(a_parameters.log_level_),
-                   storage_(a_parameters.storage_), request_(a_parameters.request_),
-                   tokens_(a_parameters.tokens_)
+                 : id_(a_parameters.id_), type_(a_parameters.type_), config_(a_parameters.config_), data_(a_parameters.data_), primitive_(a_parameters.primitive_), log_level_(a_parameters.log_level_),
+                   storage_(nullptr), request_(a_parameters.request_)
                 {
-                    /* empty */
+                    if ( nullptr != a_parameters.storage_ ) {
+                        storage_ = new Storage(*a_parameters.storage_);
+                    }
                 }
                 
                 /**
@@ -224,14 +296,126 @@ namespace casper
                  */
                 virtual ~Parameters ()
                 {
-                    /* empty */
+                    if ( nullptr != storage_ ) {
+                        delete storage_;
+                    }
                 }
 
             public: // Overloaded Operator(s)
                 
                 void operator = (Parameters const&)  = delete;  // assignment is not allowed
 
+            public: // Inline Method(s) / Function(s)
                 
+                /**
+                 * @return R/O access to storage configs.
+                 */
+                inline const Storage& storage () const
+                {
+                    if ( Config::Type::Storage != type_ || nullptr == storage_ ) {
+                        throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                    }
+                    // ... done ...
+                    return *storage_;
+                }
+                
+                /**
+                 * @brief Prepare storage config, exception for better tracking of variables write acccess.
+                 *
+                 * @return R/O access to storage configs.
+                 */
+                inline const Storage& storage (const std::function<void(Storage&)>& a_callback)
+                {
+                    if ( Config::Type::Storage != type_ ) {
+                        throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                    }
+                    // ... if doesn't exists yet ...
+                    if ( nullptr == storage_ ) {
+                        // ... create it now ...
+                        storage_ = new Storage({
+                            /* method_   */ ::ev::curl::Request::HTTPRequestType::NotSet,
+                            /* url_      */ "",
+                            /* body_     */ "",
+                            /* headers_  */ {},
+                            /* timeouts_ */ { -1, -1 }
+                        });
+                    }
+                    // ... callback ...
+                    a_callback(*storage_);
+                    // ... done ...
+                    return *storage_;
+                }
+                
+                /**
+                 * @return R/O access to storage configs.
+                 */
+                inline const Storage& storage (const ::ev::curl::Request::HTTPRequestType a_type)
+                {
+                    if ( Config::Type::Storage != type_ || nullptr == storage_ ) {
+                        throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                    }
+                    storage_->method_ = a_type;
+                    storage_->body_   = "";
+                    // ... done ...
+                    return *storage_;
+                }
+                
+                /**
+                 * @return R/O access to storage configs.
+                 */
+                inline const Storage& storage (const ::ev::curl::Request::HTTPRequestType a_type, const std::string& a_body)
+                {
+                    if ( Config::Type::Storage != type_ || nullptr == storage_ ) {
+                        throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                    }
+                    storage_->method_ = a_type;
+                    storage_->body_   = a_body;
+                    // ... done ...
+                    return *storage_;
+                }
+                
+                /**
+                 * @return R/O access to request configs.
+                 */
+                inline const Request& request () const
+                {
+                    return request_;
+                }
+                
+                /**
+                 * @brief Prepare request config, exception for better tracking of variables write acccess.
+                 *
+                 * @return R/O access to request configs.
+                 */
+                inline const Request& request (const std::function<void(Request&)>& a_callback)
+                {
+                    // ... callback ...
+                    a_callback(request_);
+                    // ... done ...
+                    return request_;
+                }
+                
+                /**
+                 * @brief Prepare request tokens data, exception for better tracking of variables write acccess.
+                 *
+                 * @return R/W access to request tokens data.
+                 */
+                inline ::cc::easy::OAuth2HTTPClient::Tokens& tokens (const std::function<void(::cc::easy::OAuth2HTTPClient::Tokens&)>& a_callback)
+                {
+                    // ... callback ...
+                    a_callback(request_.tokens_);
+                    // ... done ...
+                    return request_.tokens_;
+                }
+
+                /**
+                 * @return R/O access to request OAuth2 tokens.
+                 */
+                inline const ::cc::easy::OAuth2HTTPClient::Tokens& tokens () const
+                {
+                    return request_.tokens_;
+                }
+
             }; // end of class 'Parameters'
         
             // MARK: -

@@ -53,9 +53,11 @@ namespace casper
 
             public: // Static Const Data
                 
-                constexpr static const char* const sk_tube_      = "oauth2-http-client";
+                constexpr static const char* const sk_tube_                       = "oauth2-http-client";
+                constexpr static const long        sk_storage_connection_timeout_ = 30;
+                constexpr static const long        sk_storage_operation_timeout_  = 60;
                 static           const Json::Value sk_behaviour_;
-                
+
             private: // Data
                 
                 std::map<std::string, proxy::worker::Config*> providers_;

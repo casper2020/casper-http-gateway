@@ -35,15 +35,7 @@ casper::proxy::worker::Deferred::Deferred (const casper::job::deferrable::Tracki
 : ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>(casper::proxy::worker::MakeID(a_tracking), a_tracking CC_IF_DEBUG_CONSTRUCT_APPEND_PARAM_VALUE(a_thread_id)),
     loggable_data_(a_loggable_data),
     http_(nullptr),
-    http_oauth2_(nullptr),
-    tokens_({
-        /* type_       */ "",
-        /* access_     */ "",
-        /* refresh_    */ "",
-        /* expires_in_ */  0,
-        /* scope_      */ "",
-        /* on_change_  */ nullptr
-    })
+    http_oauth2_(nullptr)
 {
     http_options_         = HTTPOptions::OAuth2 | HTTPOptions::Trace | HTTPOptions::Redact;
     current_              = Deferred::Operation::NotSet;
@@ -84,16 +76,19 @@ void casper::proxy::worker::Deferred::Run (const casper::proxy::worker::Argument
     }
     // ... keep track of arguments and callbacks ...
     arguments_ = new casper::proxy::worker::Arguments(a_args);
-    callbacks_ = a_callbacks;    
+    callbacks_ = a_callbacks;
     // ... prepare HTTP client ...
-    http_oauth2_ = new ::cc::easy::OAuth2HTTPClient(loggable_data_, arguments_->parameters().config_, tokens_);
+    http_oauth2_ = new ::cc::easy::OAuth2HTTPClient(loggable_data_, arguments_->parameters().config_,
+                                                    arguments_->parameters().tokens([this](::cc::easy::OAuth2HTTPClient::Tokens& a_tokens){
+                                                        a_tokens.on_change_ = std::bind(&casper::proxy::worker::Deferred::OnOAuth2TokensChanged, this);
+                                                    })
+    );
     if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
         http_oauth2_->SetcURLedCallbacks({
             /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientRequest, this, std::placeholders::_1, std::placeholders::_2),
             /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientValue  , this, std::placeholders::_1, std::placeholders::_2)
         }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
     }
-    tokens_.on_change_ = std::bind(&casper::proxy::worker::Deferred::OnOAuth2TokensChanged, this);
     // ... first, load tokens from DB ...
     ScheduleLoadTokens(true, nullptr, 0);
 }
@@ -121,15 +116,15 @@ void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track 
     // ... track it now ...
     Track();
     // ... load tokens and then perform request, or just perform request?
-    switch (arguments().parameters().type_) {
+    switch (arguments_->parameters().type_) {
         case proxy::worker::Config::Type::Storage:
         {
             // ... allow oauth2 restart?
-            allow_oauth2_restart_ = arguments().parameters().config_.oauth2_.m2m_;
+            allow_oauth2_restart_ = arguments_->parameters().config_.oauth2_.m2m_;
             // ... then, perform request ...
             operations_.push_back(Deferred::Operation::PerformRequest);
             // ... but first, perform obtain tokens ...
-            arguments().parameters().storage_.method_ = ::ev::curl::Request::HTTPRequestType::GET;
+            (void)arguments_->parameters().storage(::ev::curl::Request::HTTPRequestType::GET);
             // ... prepare HTTP client ...
             http_ = new ::cc::easy::HTTPClient(loggable_data_);
             if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
@@ -140,32 +135,38 @@ void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track 
             }
             // ... HTTP requests must be performed @ MAIN thread ...
             callbacks_.on_main_thread_([this]() {
-                const auto& params  = arguments().parameters();
                 // ... first load tokens from db ...
-                http_->GET(params.storage_.url_, params.storage_.headers_, ::cc::easy::HTTPClient::RawCallbacks({
-                                        /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
-                                        /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
-                                        /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
-                                    })
+                const auto& storage = arguments_->parameters().storage();
+                http_->GET(storage.url_, storage.headers_,
+                           ::cc::easy::HTTPClient::RawCallbacks({
+                              /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
+                              /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
+                              /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
+                           }),
+                           &storage.timeouts_
                 );
             });
         }
             break;
         case proxy::worker::Config::Type::Storageless:
         {
+            // ... since we're storageless, we're m2m ....
             allow_oauth2_restart_ = true;
             // ... just perform request ...
-            if ( 0 == tokens_.access_.size() ) {
+            if ( 0 == arguments_->parameters().tokens().access_.size() ) {
+                // ... then, perform request ...
+                operations_.push_back(Deferred::Operation::PerformRequest);
+                // .... but first, schedule authorization ....
                 ScheduleAuthorization(false, __FUNCTION__, 0);
             } else {
-                // TODO: handle with access and refresh expiration retry
+                // ... since we have tokens, use them and perform the request ...
                 SchedulePerformRequest(false, __FUNCTION__, 0);
             }
         }
             break;
         default:
             throw ::cc::NotImplemented("@ %s : Method " UINT8_FMT " - not implemented yet!",
-                                            __FUNCTION__, static_cast<uint8_t>(arguments().parameters().type_)
+                                            __FUNCTION__, static_cast<uint8_t>(arguments_->parameters().type_)
             );
     }
 }
@@ -189,11 +190,9 @@ void casper::proxy::worker::Deferred::ScheduleSaveTokens (const bool /* a_track 
     // ... log ...
     callbacks_.on_log_deferred_step_(this, operation_str_ + "...");
     // ... save tokens ...
-    switch (arguments().parameters().type_) {
+    switch (arguments_->parameters().type_) {
         case proxy::worker::Config::Type::Storage:
         {
-            // ... but first, perform obtain tokens ...
-            arguments().parameters().storage_.method_ = ::ev::curl::Request::HTTPRequestType::POST;
             // ... prepare HTTP client ...
             if ( nullptr == http_ ) {
                 http_ = new ::cc::easy::HTTPClient(loggable_data_);
@@ -204,24 +203,27 @@ void casper::proxy::worker::Deferred::ScheduleSaveTokens (const bool /* a_track 
                     }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
                 }
             }
+            // ... perform save tokens ...
+            const auto& tokens = arguments_->parameters().tokens();
             // ... set body ...
             const ::cc::easy::JSON<::cc::InternalServerError> json;
             Json::Value body = Json::Value(Json::ValueType::objectValue);
-            body["access_token"]  = ede(tokens_.access_);
-            body["refresh_token"] = ede(tokens_.refresh_);
-            body["expires_in"]    = static_cast<Json::UInt64>(tokens_.expires_in_);
-            body["scope"]         = tokens_.scope_;
-            arguments().parameters().storage_.body_ = json.Write(body);
+            body["access_token"]  = ede(tokens.access_);
+            body["refresh_token"] = ede(tokens.refresh_);
+            body["expires_in"]    = static_cast<Json::UInt64>(tokens.expires_in_);
+            body["scope"]         = tokens.scope_;
+            (void)arguments_->parameters().storage(::ev::curl::Request::HTTPRequestType::POST, json.Write(body));
             // ... HTTP requests must be performed @ MAIN thread ...
             callbacks_.on_main_thread_([this]() {
-                auto& params = arguments().parameters();
+                const auto& storage = arguments_->parameters().storage();
                 // ... save tokens from db ...
-                http_->POST(params.storage_.url_, params.storage_.headers_, params.storage_.body_,
+                http_->POST(storage.url_, storage.headers_, storage.body_,
                             ::cc::easy::HTTPClient::RawCallbacks({
                                     /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
                                     /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
                                     /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
-                            })
+                            }),
+                            &storage.timeouts_
                 );
             });
         }
@@ -231,7 +233,7 @@ void casper::proxy::worker::Deferred::ScheduleSaveTokens (const bool /* a_track 
             break;
         default:
             throw ::cc::NotImplemented("@ %s : Method " UINT8_FMT " - not implemented yet!",
-                                       __FUNCTION__, static_cast<uint8_t>(arguments().parameters().type_)
+                                       __FUNCTION__, static_cast<uint8_t>(arguments_->parameters().type_)
             );
     }
 }
@@ -249,7 +251,7 @@ void casper::proxy::worker::Deferred::ScheduleAuthorization (const bool a_track,
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
     CC_DEBUG_ASSERT(true == Tracked());
     CC_DEBUG_ASSERT(nullptr != arguments_);
-    CC_DEBUG_ASSERT(true == arguments().parameters().config_.oauth2_.m2m_);
+    CC_DEBUG_ASSERT(true == arguments_->parameters().config_.oauth2_.m2m_);
     // ... mark ...
     current_       = Deferred::Operation::RestartOAuth2;
     operation_str_ = "http/" + std::string(nullptr != a_origin ? a_origin : __FUNCTION__);
@@ -287,7 +289,7 @@ void casper::proxy::worker::Deferred::SchedulePerformRequest (const bool a_track
     CC_DEBUG_ASSERT(true == Tracked());
     // ... HTTP requests must be performed @ MAIN thread ...
     callbacks_.on_main_thread_([this]() {
-        const auto& request = arguments().parameters().request_;
+        const auto& request = arguments_->parameters().request();
         // ... async perform HTTP request ...
         const ::cc::easy::HTTPClient::RawCallbacks callbacks = {
             /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
@@ -353,7 +355,9 @@ void casper::proxy::worker::Deferred::OnOAuth2TokensChanged ()
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
     // ... push next operation to run after this one is successfully completed ...
-    operations_.push_back(Deferred::Operation::SaveTokens);
+    if ( proxy::worker::Config::Type::Storage == arguments_->parameters().type_ ) {
+        operations_.push_back(Deferred::Operation::SaveTokens);
+    }
 }
 
 /**
@@ -379,25 +383,27 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
         switch(current_) {
             case Deferred::Operation::LoadTokens:
             {
+                // ... parse response and read tokens ...
                 response_.Parse();
-                // ... read tokens?
                 if ( CC_EASY_HTTP_OK == response_.code() ) {
                     const Json::Value& data = response_.json();
-                    tokens_.type_    = json.Get(data, "token_type", Json::ValueType::stringValue, nullptr).asString();
-                    tokens_.access_  = edd(json.Get(data, "access_token", Json::ValueType::stringValue, nullptr).asString());
-                    tokens_.refresh_ = edd(json.Get(data, "refresh_token", Json::ValueType::stringValue, nullptr).asString());
-                    const Json::Value& scope = json.Get(data, "token_type", Json::ValueType::stringValue, &Json::Value::null);
-                    if ( false == scope.isNull() ) {
-                        tokens_.scope_ = data["scope"].asString();
-                    } else {
-                        tokens_.scope_ = "";
-                    }
-                    const Json::Value& expires_in = json.Get(data, "expires_in", Json::ValueType::uintValue, &Json::Value::null);
-                    if ( false == expires_in.isNull() ) {
-                        tokens_.expires_in_ = static_cast<size_t>(expires_in.asUInt64());
-                    } else {
-                        tokens_.expires_in_ = 0;
-                    }
+                    (void)arguments_->parameters().tokens([&json, &data](::cc::easy::OAuth2HTTPClient::Tokens& a_tokens) {
+                        a_tokens.type_    = json.Get(data, "token_type", Json::ValueType::stringValue, nullptr).asString();
+                        a_tokens.access_  = edd(json.Get(data, "access_token", Json::ValueType::stringValue, nullptr).asString());
+                        a_tokens.refresh_ = edd(json.Get(data, "refresh_token", Json::ValueType::stringValue, nullptr).asString());
+                        const Json::Value& scope = json.Get(data, "token_type", Json::ValueType::stringValue, &Json::Value::null);
+                        if ( false == scope.isNull() ) {
+                            a_tokens.scope_ = data["scope"].asString();
+                        } else {
+                            a_tokens.scope_ = "";
+                        }
+                        const Json::Value& expires_in = json.Get(data, "expires_in", Json::ValueType::uintValue, &Json::Value::null);
+                        if ( false == expires_in.isNull() ) {
+                            a_tokens.expires_in_ = static_cast<size_t>(expires_in.asUInt64());
+                        } else {
+                            a_tokens.expires_in_ = 0;
+                        }
+                    });
                 }
             }
                 break;
@@ -408,28 +414,32 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
                 break;
             case Deferred::Operation::RestartOAuth2:
             {
+                // ... parse response and read tokens ...
                 response_.Parse();
-                // ... read tokens?
                 if ( CC_EASY_HTTP_OK == response_.code() ) {
                     const Json::Value& data = response_.json();
-                    tokens_.access_ = json.Get(data, "access_token", Json::ValueType::stringValue, nullptr).asString();
-                    const Json::Value& refresh_token = json.Get(data, "refresh_token", Json::ValueType::stringValue, &Json::Value::null);
-                    if ( false == refresh_token.isNull() ) {
-                        tokens_.refresh_ = refresh_token.asString();
-                    }
-                    const Json::Value& token_type = json.Get(data, "token_type", Json::ValueType::stringValue, &Json::Value::null);
-                    if ( false == token_type.isNull() ) {
-                        tokens_.type_ = token_type.asString();
-                    }
-                    const Json::Value& expires_in = json.Get(data, "expires_in", Json::ValueType::uintValue, &Json::Value::null);
-                    if ( false == expires_in.isNull() ) {
-                        tokens_.expires_in_ = static_cast<size_t>(expires_in.asUInt64());
-                    } else {
-                        tokens_.expires_in_ = 0;
-                    }
+                    (void)arguments_->parameters().tokens([&json, &data](::cc::easy::OAuth2HTTPClient::Tokens& a_tokens) {
+                        a_tokens.access_ = json.Get(data, "access_token", Json::ValueType::stringValue, nullptr).asString();
+                        const Json::Value& refresh_token = json.Get(data, "refresh_token", Json::ValueType::stringValue, &Json::Value::null);
+                        if ( false == refresh_token.isNull() ) {
+                            a_tokens.refresh_ = refresh_token.asString();
+                        }
+                        const Json::Value& token_type = json.Get(data, "token_type", Json::ValueType::stringValue, &Json::Value::null);
+                        if ( false == token_type.isNull() ) {
+                            a_tokens.type_ = token_type.asString();
+                        }
+                        const Json::Value& expires_in = json.Get(data, "expires_in", Json::ValueType::uintValue, &Json::Value::null);
+                        if ( false == expires_in.isNull() ) {
+                            a_tokens.expires_in_ = static_cast<size_t>(expires_in.asUInt64());
+                        } else {
+                            a_tokens.expires_in_ = 0;
+                        }
+                    });
                 }
-                // ... next, save tokens ...
-                operations_.insert(operations_.begin(), Deferred::Operation::SaveTokens);
+                // ... next, save tokens?
+                if ( proxy::worker::Config::Type::Storage == arguments_->parameters().type_ ) {
+                    operations_.insert(operations_.begin(), Deferred::Operation::SaveTokens);
+                }
             }
                 break;
             default:
@@ -444,7 +454,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
                 // ... no tokens available ...
                 acceptable = ( CC_EASY_HTTP_NOT_FOUND == response_.code() );
                 // ... obtain new pair? ( no need to add save tokens operation - it will be added upon success )
-                if ( 0 == tokens_.access_.size() && true == acceptable && true == allow_oauth2_restart_ ) {
+                if ( 0 == arguments_->parameters().tokens().access_.size() && true == acceptable && true == allow_oauth2_restart_ ) {
                     operations_.insert(operations_.begin(), Deferred::Operation::RestartOAuth2);
                 }
                 break;
@@ -466,17 +476,19 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
         }
     }
     // ... failed to renew tokens exception ...
-    if ( false == acceptable && current_ != Deferred::Operation::SaveTokens ) {
-        // ... if there's a pending operation to 'store' tokens ...
-        const auto it = std::find_if(operations_.begin(), operations_.end(), [](const Deferred::Operation& a_operation) {
-            return ( Deferred::Operation::SaveTokens == a_operation );
-        });
-        if ( operations_.end() != it ) {
-            // ... forget all others, except this one ...
-            operations_.clear();
-            operations_.push_back(Deferred::Operation::SaveTokens);
-            // ... and override 'acceptable' flag ...
-            acceptable = true;
+    if ( proxy::worker::Config::Type::Storage == arguments_->parameters().type_ ) {
+        if ( false == acceptable && current_ != Deferred::Operation::SaveTokens ) {
+            // ... if there's a pending operation to 'store' tokens ...
+            const auto it = std::find_if(operations_.begin(), operations_.end(), [](const Deferred::Operation& a_operation) {
+                return ( Deferred::Operation::SaveTokens == a_operation );
+            });
+            if ( operations_.end() != it ) {
+                // ... forget all others, except this one ...
+                operations_.clear();
+                operations_.push_back(Deferred::Operation::SaveTokens);
+                // ... and override 'acceptable' flag ...
+                acceptable = true;
+            }
         }
     }
     // ... save response ...

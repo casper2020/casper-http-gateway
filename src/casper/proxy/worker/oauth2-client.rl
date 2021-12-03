@@ -47,12 +47,6 @@ casper::proxy::worker::OAuth2Client::OAuth2Client (const ev::Loggable::Data& a_l
 casper::proxy::worker::OAuth2Client::~OAuth2Client ()
 {
     for ( const auto& it : providers_ ) {
-        if ( nullptr != it.second->storage_ ) {
-            delete it.second->storage_;
-        }
-        if ( nullptr != it.second->storageless_ ) {
-            delete it.second->storageless_;
-        }
         delete it.second;
     }
     providers_.clear();
@@ -119,18 +113,28 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
             try {
                 if ( 0 == strcasecmp(type_ref.asCString(), "storage") ) {
                     const Json::Value& storage_ref = json.Get(provider_ref, "storage", Json::ValueType::objectValue, nullptr);
-                    const Json::Value& endpoints_ref = json.Get(storage_ref, "endpoints", Json::ValueType::objectValue, nullptr);
+                    const Json::Value& endpoints_ref = json.Get(storage_ref, "endpoints", Json::ValueType::objectValue, nullptr);                    
+                    Json::Value timeouts = json.Get(storage_ref, "timeouts", Json::ValueType::objectValue, &Json::Value::null);
+                    if ( true == timeouts.isNull() ) {
+                        timeouts = Json::Value(Json::ValueType::objectValue);
+                        timeouts["connection"] = static_cast<Json::Int>(sk_storage_connection_timeout_);
+                        timeouts["operation"]  = static_cast<Json::Int>(sk_storage_operation_timeout_);
+                    }
                     p_config = new proxy::worker::Config( {
                         /* http_    */ config,
                         /* headers  */ headers,
                         /* signing_ */ json.Get(provider_ref, "signing", Json::ValueType::objectValue, &Json::Value::null),
                         /* storage_ */
                         proxy::worker::Config::Storage({
-                            /* headers_ */ object2headers(json.Get(storage_ref, "headers", Json::ValueType::objectValue, &Json::Value::null)),
                             /* endpoints_ */ {
                                 /* tokens_  */ json.Get(endpoints_ref, "tokens", Json::ValueType::stringValue, nullptr).asString()
                             },
-                            /* arguments_ */ json.Get(storage_ref, "arguments", Json::ValueType::objectValue, &Json::Value::null)
+                            /* arguments_ */ json.Get(storage_ref, "arguments", Json::ValueType::objectValue, &Json::Value::null),
+                            /* headers_ */ object2headers(json.Get(storage_ref, "headers", Json::ValueType::objectValue, &Json::Value::null)),
+                            /* timeouts_ */ {
+                                /* connection_ */ static_cast<long>(json.Get(timeouts, "connection", Json::ValueType::intValue, nullptr).asInt()),
+                                /* operation_  */ static_cast<long>(json.Get(timeouts, "operation", Json::ValueType::intValue, nullptr).asInt()),
+                            }
                         })
                     });
                 } else if ( 0 == strcasecmp(type_ref.asCString(), "storageless") ) {
@@ -210,15 +214,17 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
         /* rcid_ */ RCID(),
         /* dpi_  */ "CPW",
     };
-    // TODO: v8 here!
-    casper::proxy::worker::Arguments arguments({
-        /* a_type      */ provider_it->second->type_,
-        /* a_config    */ provider_it->second->http_,
-        /* a_data      */ http,
-        /* a_primitive */ ( true == broker && 0 == strcasecmp("gateway",  behaviour.asCString()) ),
-        /* a_log_level */ config_.log_level()
-    });
-    // TODO: v8 all
+    // ... prepare arguments / parameters ...
+    casper::proxy::worker::Arguments arguments = casper::proxy::worker::Arguments(
+        {
+            /* a_id        */ provider_it->first,
+            /* a_type      */ provider_it->second->type_,
+            /* a_config    */ provider_it->second->http_,
+            /* a_data      */ http,
+            /* a_primitive */ ( true == broker && 0 == strcasecmp("gateway",  behaviour.asCString()) ),
+            /* a_log_level */ config_.log_level()
+        }
+    );
     // ... prepare request ...
     {
         const ::cc::easy::JSON<::cc::BadRequest> json;
@@ -233,8 +239,7 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
         //
         // REQUEST
         //
-        auto& request = arguments.parameters().request_;
-        {
+        (void)arguments.parameters().request([&, this](proxy::worker::Parameters::Request& a_request) {
             // ... V8 data ...
             merged["signing"] = provider_it->second->signing_;
             // ... method ...
@@ -246,12 +251,12 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
                 %%{
                     machine ClientMachine;
                     main := |*
-                        /get/i    => { request.method_ = ::ev::curl::Request::HTTPRequestType::GET;    };
-                        /put/i    => { request.method_ = ::ev::curl::Request::HTTPRequestType::PUT;    };
-                        /delete/i => { request.method_ = ::ev::curl::Request::HTTPRequestType::DELETE; };
-                        /post/i   => { request.method_ = ::ev::curl::Request::HTTPRequestType::POST;   };
-                        /patch/i  => { request.method_ = ::ev::curl::Request::HTTPRequestType::PATCH;  };
-                        /head/i   => { request.method_ = ::ev::curl::Request::HTTPRequestType::HEAD;   };
+                        /get/i    => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::GET;    };
+                        /put/i    => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::PUT;    };
+                        /delete/i => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::DELETE; };
+                        /post/i   => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::POST;   };
+                        /patch/i  => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::PATCH;  };
+                        /head/i   => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::HEAD;   };
                     *|;
                     write data;
                     write init;
@@ -262,17 +267,15 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
             }
             const Json::Value& req_headers_ref  = json.Get(http           , "headers"     , Json::ValueType::objectValue, nullptr);
             const Json::Value& content_type_ref = json.Get(req_headers_ref, "Content-Type", Json::ValueType::stringValue, nullptr);
-            // ... URL ...
-            request.url_ = url_ref.asString();
             // ... body ...
             if ( false == body_ref.isNull() ) {
                 if ( 0 == strncasecmp(content_type_ref.asCString(), "application/json", sizeof(char) * 16) ) {
-                    request.body_ = json.Write(body_ref);
+                    a_request.body_ = json.Write(body_ref);
                 } else {
-                    request.body_ = body_ref.asString();
+                    a_request.body_ = body_ref.asString();
                 }
             }
-            merged["body"] = request.body_;
+            merged["body"] = a_request.body_;
             // ... headers ...
             {
                 if ( false == http.isMember("headers") ) {
@@ -283,72 +286,78 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
                 for ( auto key : req_headers_ref.getMemberNames() ) {
                     const Json::Value& header = json.Get(req_headers_ref, key.c_str(), Json::ValueType::stringValue, nullptr);
                     merged["headers"][key] = header.asString();
-                    request.headers_[key] = { header.asString() };
+                    a_request.headers_[key] = { header.asString() };
                 }
                 // ... append or override headers ...
                 for ( auto header : provider_it->second->headers_ ) {
                     for ( auto& v : header.second ) {
-                        request.headers_[header.first].push_back("");
-                        auto& last = request.headers_[header.first][request.headers_[header.first].size() - 1];
+                        a_request.headers_[header.first].push_back("");
+                        auto& last = a_request.headers_[header.first][a_request.headers_[header.first].size() - 1];
                         Evaluate(a_id, v, merged, last);
                         merged["headers"][header.first] = last;
                     }
                 }
             }
+            // ... URL V8(ing)?
+            const std::string url = url_ref.asString();
+            if ( nullptr != strchr(url.c_str(), '$') ) {
+                Evaluate(a_id, url, merged, a_request.url_);
+            } else {
+                a_request.url_ = url;
+            }
             // ... timeouts ...
             if ( false == timeouts_ref.isNull() ) {
                 const Json::Value connection_ref = json.Get(timeouts_ref, "connection", Json::ValueType::uintValue, &Json::Value::null);
                 if ( false == connection_ref.isNull() ) {
-                    request.timeouts_.connection_ = static_cast<long>(connection_ref.asInt64());
+                    a_request.timeouts_.connection_ = static_cast<long>(connection_ref.asInt64());
                 }
                 const Json::Value operation_ref = json.Get(timeouts_ref, "operation", Json::ValueType::uintValue, &Json::Value::null);
                 if ( false == operation_ref.isNull() ) {
-                    request.timeouts_.operation_ = static_cast<long>(operation_ref.asInt64());
+                    a_request.timeouts_.operation_ = static_cast<long>(operation_ref.asInt64());
                 }
             }
-        }
+            // ... storageless?
+            if ( proxy::worker::Config::Type::Storageless == arguments.parameters().type_ ) {
+                // ... copy latest tokens available?..
+                a_request.tokens_ = provider_it->second->storageless().tokens_;
+            }
+        });
         //
         // STORAGE
         //
         {
-            // ... override / merge / evaluate ...
-            const std::map<std::string, std::vector<std::string>>* cfg_headers = nullptr;
-            std::map<std::string, std::vector<std::string>>*       stg_headers = nullptr;
             // ... prepare load / save tokens ...
             if ( proxy::worker::Config::Type::Storage == arguments.parameters().type_ ) {
-                // ... load tokens ...
-                auto& params = arguments.parameters();
-                params.storage_.url_     = provider_it->second->storage_->endpoints_.tokens_;
-                params.storage_.headers_ = provider_it->second->storage_->headers_;
+                const auto& storage_cfg = provider_it->second->storage();
                 // ... merge default values for 'arguments' ...
-                if ( false == provider_it->second->storage_->arguments_.isNull() ) {
-                    const auto& args = provider_it->second->storage_->arguments_;
+                if ( false == storage_cfg.arguments_.isNull() ) {
+                    const auto& args = storage_cfg.arguments_;
                     for ( auto member : args.getMemberNames() ) {
                         if ( false == merged.isMember(member) ) {
                             merged[member] = args[member];
                         }
                     }
                 }
-                // ... V8 it ...
-                Evaluate(a_id, params.storage_.url_, merged, params.storage_.url_);
-                // ... prepare headers 'merge' ...
-                cfg_headers = &provider_it->second->storage_->headers_;
-                stg_headers = &params.storage_.headers_;
-            } else if ( proxy::worker::Config::Type::Storageless == arguments.parameters().type_ ) {
-                throw ::cc::NotImplemented("%s", "NOT Implemented YET!");
-            } else {
-                throw ::cc::BadRequest("Unsupported config type " UINT8_FMT "!", static_cast<uint8_t>(arguments.parameters().type_));
-            }
-            // ... override and / or merge headers?
-            if ( nullptr != cfg_headers ) {
-                (*stg_headers)["Content-Type"] = { "application/json; charset=utf-8" };
-                for ( const auto& header : *cfg_headers ) {
-                    auto& vector = (*stg_headers)[header.first];
-                    vector.reserve(header.second.size());
-                    for ( size_t idx = 0 ; idx < header.second.size() ; ++idx ) {
-                        Evaluate(a_id, header.second[idx], merged, vector[idx]);
+                // ... setup load/save tokens ...
+                arguments.parameters().storage([&, this](proxy::worker::Parameters::Storage& a_storage){
+                    // ... copy config headers ...
+                    a_storage.headers_ = storage_cfg.headers_;
+                    // ... override and / or merge headers?
+                    for ( const auto& header : a_storage.headers_ ) {
+                        auto& vector = a_storage.headers_[header.first];
+                        for ( size_t idx = 0 ; idx < header.second.size() ; ++idx ) {
+                            Evaluate(a_id, header.second[idx], merged, vector[idx]);
+                        }
                     }
-                }
+                    a_storage.headers_["Content-Type"] = { "application/json; charset=utf-8" };
+                    // ... URL V8(ing) ?
+                    const std::string url = storage_cfg.endpoints_.tokens_;
+                    if ( nullptr != strchr(url.c_str(), '$') ) {
+                        Evaluate(a_id, url, merged, a_storage.url_);
+                    } else {
+                        a_storage.url_ = url;
+                    }
+                });
             }
         }
     }
@@ -358,7 +367,8 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
     ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>::Publish(tracking.bjid_, tracking.rcid_, tracking.rjid_,
                                                                                                   OAuth2ClientStep::DoingIt,
                                                                                                   ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>::Status::InProgress,
-                                                                                                  sk_i18n_in_progress_.key_, sk_i18n_in_progress_.arguments_);
+                                                                                                  sk_i18n_in_progress_.key_, sk_i18n_in_progress_.arguments_
+    );
     // ... accepted ...
     o_response.code_ = CC_STATUS_CODE_OK;
     // ... but it will be deferred ...
@@ -375,16 +385,27 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
  *
  * @return HTTP Status code:
  *         - if returns 0 don't finalize job now ( still work to do );
- *         - if no 0, or if an exception is catched finalize job immediatley.
+ *         - if 0, or if an exception is catched finalize job immediatley.
  */
 uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload)
 {
+    const auto& params = a_deferred->arguments().parameters();
+    // ...
+    {
+        const auto& provider = providers_.find(params.id_);
+        if ( proxy::worker::Config::Type::Storageless == provider->second->type_ ) {
+            provider->second->storageless([&params](proxy::worker::Config::Storageless& a_storageless){
+                a_storageless.tokens_ = params.tokens();
+            });
+        }
+    }
+    // ...
     const auto     response = a_deferred->response();
     const uint16_t code     = response.code();
     // ... set payload ...
     o_payload = Json::Value(Json::ValueType::objectValue);
     // ... primitive or default?
-    if ( true == a_deferred->arguments().parameters().primitive_ ) {
+    if ( true == params.primitive_ ) {
         // ... gateway response mode ....
         // !<status-code-int-value>,<content-type-length-in-bytes>,<content-type-string-value>,<headers-length-bytes>,<headers>,<body-length-bytes>,<body>
         std::stringstream ss;
@@ -427,10 +448,21 @@ uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestCompleted (const 
  *
  * @return HTTP Status code:
  *         - if returns 0 don't finalize job now ( still work to do );
- *         - if no 0, or if an exception is catched finalize job immediatley.
+ *         - if 0, or if an exception is catched finalize job immediatley.
  */
 uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestFailed (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload)
 {
+    const auto& params = a_deferred->arguments().parameters();
+    // ...
+    {
+        const auto& provider = providers_.find(params.id_);
+        if ( proxy::worker::Config::Type::Storageless == provider->second->type_ ) {
+            provider->second->storageless([&params](proxy::worker::Config::Storageless& a_storageless){
+                a_storageless.tokens_ = params.tokens();
+            });
+        }
+    }
+    // ...
     const auto     response = a_deferred->response();
     const uint16_t code     = response.code();
     // ... set payload ...
