@@ -44,7 +44,7 @@ namespace casper
 
             public: // Constructor(s) / Destructor
                 
-                Dispatcher () = delete;
+                CC_IF_DEBUG(Dispatcher () = delete;);
                 Dispatcher (CC_IF_DEBUG_CONSTRUCT_DECLARE_VAR(const cc::debug::Threading::ThreadID, a_thread_id)) = delete;
                 Dispatcher (const ev::Loggable::Data& a_loggable_data
                             CC_IF_DEBUG_CONSTRUCT_APPEND_VAR(const cc::debug::Threading::ThreadID, a_thread_id));
