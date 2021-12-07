@@ -202,6 +202,8 @@ namespace casper
                 
             }; // end of class 'Config'
 
+            // MARK: -
+        
             class Parameters final : public ::cc::NonMovable
             {
                 
@@ -452,7 +454,7 @@ namespace casper
                 
             }; // end of class 'Arguments'
 
-        } // end of namespace 'worker'
+        } // end of namespace 'proxy'
     
     } // end of namespace 'worker'
 

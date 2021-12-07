@@ -83,13 +83,17 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
         const Json::Value empty_string = "";
         const Json::Value& providers = json.Get(config, "providers", Json::ValueType::objectValue, nullptr);
         for ( auto name : providers.getMemberNames() ) {
-            const Json::Value& provider_ref = json.Get(providers   , name.c_str(), Json::ValueType::objectValue, nullptr);
-            const Json::Value& oauth2_ref   = json.Get(provider_ref, "oauth2"    , Json::ValueType::objectValue , nullptr);
-            const Json::Value& type_ref     = json.Get(provider_ref, "type"      , Json::ValueType::stringValue , nullptr);
-            const Json::Value& m2m_ref      = json.Get(oauth2_ref  , "m2m"       , Json::ValueType::booleanValue, nullptr);
+            const Json::Value& provider_ref   = json.Get(providers   , name.c_str(), Json::ValueType::objectValue, nullptr);
+            const Json::Value& oauth2_ref     = json.Get(provider_ref, "oauth2"    , Json::ValueType::objectValue , nullptr);
+            const Json::Value& type_ref       = json.Get(provider_ref, "type"      , Json::ValueType::stringValue , nullptr);
+            const Json::Value& grant_type_ref = json.Get(oauth2_ref  , "grant_type", Json::ValueType::stringValue , nullptr);
+            const Json::Value& grant_type_obj = json.Get(oauth2_ref  , grant_type_ref.asCString(), Json::ValueType::objectValue , nullptr);
             const ::cc::easy::OAuth2HTTPClient::Config config = ::cc::easy::OAuth2HTTPClient::Config({
                 /* oauth2_ */ {
-                    /* m2m_ */ m2m_ref.asBool(),
+                    /* grant_type_   */ {
+                      /* id               */ grant_type_ref.asString(),
+                      /* rfc_6749_strict_ */ json.Get(grant_type_obj, "rfc6749", Json::ValueType::booleanValue, nullptr).asBool()
+                    },
                     /* urls_ */ {
                         /* authorization_ */ json.Get(oauth2_ref, "authorization_url", Json::ValueType::stringValue, nullptr).asString(),
                         /* token_         */ json.Get(oauth2_ref, "token_url"        , Json::ValueType::stringValue, nullptr).asString()
@@ -99,7 +103,7 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                         /* client_secret_ */ json.Get(oauth2_ref, "client_secret", Json::ValueType::stringValue, nullptr).asString()
                     },
                     /* redirect_uri_ */ json.Get(oauth2_ref, "redirect_uri", Json::ValueType::stringValue, nullptr).asString(),
-                    /* scope_        */ json.Get(oauth2_ref, "scope"       , Json::ValueType::stringValue, &empty_string).asString(),
+                    /* scope_        */ json.Get(oauth2_ref, "scope"       , Json::ValueType::stringValue, &empty_string).asString()
                 }
             });
             // ...
@@ -291,10 +295,17 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
                 // ... append or override headers ...
                 for ( auto header : provider_it->second->headers_ ) {
                     for ( auto& v : header.second ) {
-                        a_request.headers_[header.first].push_back("");
+                        const auto it = a_request.headers_.find(header.first);
+                        if ( a_request.headers_.end() == it ) {
+                            a_request.headers_[header.first].push_back("");
+                        }
                         auto& last = a_request.headers_[header.first][a_request.headers_[header.first].size() - 1];
-                        Evaluate(a_id, v, merged, last);
-                        merged["headers"][header.first] = last;
+                        if ( nullptr != strchr(v.c_str(), '$') ) {
+                            Evaluate(a_id, v, merged, last);
+                            merged["headers"][header.first] = last;
+                        } else {
+                            last = v;
+                        }
                     }
                 }
             }

@@ -35,12 +35,12 @@ namespace casper
         namespace worker
         {
             
-            class Dispatcher : public ::casper::job::deferrable::Dispatcher<casper::proxy::worker::Arguments>
+            class Dispatcher final : public ::casper::job::deferrable::Dispatcher<casper::proxy::worker::Arguments>
             {
 
             protected: // Const Data
 
-                const ev::Loggable::Data& loggable_data_; //!<
+                const ev::Loggable::Data& loggable_data_; //!< reference to loggable data.
 
             public: // Constructor(s) / Destructor
                 
@@ -62,7 +62,7 @@ namespace casper
 
         } // end of namespace 'worker'
     
-    } // end of namespace 'worker'
+    } // end of namespace 'proxy'
 
 } // end of namespace 'casper'
 

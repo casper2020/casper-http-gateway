@@ -39,15 +39,17 @@ namespace casper
     
         namespace worker
         {
-        
+
+            // MARK: -
+
             enum class OAuth2ClientStep : uint8_t {
                 Fetching = 5,
                 DoingIt  = 95,
                 Done     = 100
             };
-                    
-            // TODO: fix this                
-        
+
+            // MARK: -
+
             class OAuth2Client final : public ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>
             {
 
@@ -76,18 +78,18 @@ namespace casper
 
             private: // Method(s) / Function(s) - deferrable::Dispatcher Callbacks
                 
-                uint16_t OnDeferredRequestCompleted    (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
-                uint16_t OnDeferredRequestFailed       (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
+                uint16_t OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
+                uint16_t OnDeferredRequestFailed    (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
 
             private: // Method(s) / Function(s) - V8 Helper(s)
                 
                 void Evaluate (const uint64_t& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const;
 
-            }; // end of class 'Base'
+            }; // end of class 'OAuth2Client'
         
         } // end of namespace 'worker'
     
-    } // end of namespace 'worker'
+    } // end of namespace 'proxy'
 
 } // end of namespace 'casper'
 

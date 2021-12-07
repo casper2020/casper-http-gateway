@@ -21,6 +21,8 @@
 
 #include "casper/proxy/worker/deferred.h"
 
+#include "cc/easy/job/types.h"
+
 extern std::string ede (const std::string&);
 extern std::string edd (const std::string&);
 
@@ -67,11 +69,12 @@ void casper::proxy::worker::Deferred::Run (const casper::proxy::worker::Argument
     CC_DEBUG_ASSERT(nullptr == http_ && nullptr == http_oauth2_ && nullptr == arguments_);
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
     // ... update http options ...
-    if ( a_args.parameters().log_level_ >= 5 /* CC_JOB_LOG_LEVEL_VBS 5 // VERBOSE */  ) {
+    if ( a_args.parameters().log_level_ >= CC_JOB_LOG_LEVEL_VBS ) {
         http_options_ |= HTTPOptions::Log;
         // ... log storage related requests?
-        if ( a_args.parameters().log_level_ >= 6 ) {
+        if ( a_args.parameters().log_level_ >= CC_JOB_LOG_LEVEL_DBG ) {
             http_options_ |= HTTPOptions::NonOAuth2;
+            http_options_ &= ~HTTPOptions::Redact;
         }
     }
     // ... keep track of arguments and callbacks ...
@@ -120,7 +123,7 @@ void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track 
         case proxy::worker::Config::Type::Storage:
         {
             // ... allow oauth2 restart?
-            allow_oauth2_restart_ = arguments_->parameters().config_.oauth2_.m2m_;
+            allow_oauth2_restart_ = false;
             // ... then, perform request ...
             operations_.push_back(Deferred::Operation::PerformRequest);
             // ... but first, perform obtain tokens ...
@@ -251,17 +254,34 @@ void casper::proxy::worker::Deferred::ScheduleAuthorization (const bool a_track,
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
     CC_DEBUG_ASSERT(true == Tracked());
     CC_DEBUG_ASSERT(nullptr != arguments_);
-    CC_DEBUG_ASSERT(true == arguments_->parameters().config_.oauth2_.m2m_);
     // ... mark ...
     current_       = Deferred::Operation::RestartOAuth2;
     operation_str_ = "http/" + std::string(nullptr != a_origin ? a_origin : __FUNCTION__);
+    
+    auto grant_type = arguments().parameters().config_.oauth2_.grant_type_;
     // ... HTTP requests must be performed @ MAIN thread ...
-    callbacks_.on_main_thread_([this]() {
-        http_oauth2_->AuthorizationRequest({
-            /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
-            /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
-            /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
-        });
+    callbacks_.on_main_thread_([this, grant_type]() {
+        // TODO: grant_type_ @ config http_oauth2_->AuthorizationRequest({
+        if ( 0 == strcasecmp(grant_type.id_.c_str(), "client_credentials") ) {
+            http_oauth2_->ClientCredentialsGrant({
+                /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
+                /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
+                /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
+            }, /* a_rfc_6749 */ grant_type.rfc_6749_strict_);
+        } else if ( 0 == strcasecmp(grant_type.id_.c_str(), "authorization_code") ) {
+            // TODO: read authorization code from params
+            http_oauth2_->AuthorizationCodeGrant("<TODO>", {
+                /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
+                /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
+                /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
+            }, /* a_rfc_6749 */ grant_type.rfc_6749_strict_);
+        } else if ( 0 == strcasecmp(grant_type.id_.c_str(), "authorization_code-auto") ) {
+            http_oauth2_->AuthorizationCodeGrant({
+                /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
+                 /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
+                /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
+            });
+        }
     });
 }
 
@@ -335,7 +355,7 @@ void casper::proxy::worker::Deferred::Finalize (const std::string& a_tag)
         // ... if request failed, and if we're tracing and did not log HTTP calls, should we do it now?
         if ( CC_EASY_HTTP_OK != response_.code() && HTTPOptions::Trace == ( HTTPOptions::Trace & http_options_ ) && not ( HTTPOptions::Log == ( HTTPOptions::Log & http_options_ ) ) ) {
             for ( const auto& trace : http_trace_ ) {
-                callbacks_.on_log_deferred_debug_(this, trace.data_);
+                callbacks_.on_log_deferred_(this, CC_JOB_LOG_LEVEL_VBS ,CC_JOB_LOG_STEP_HTTP, trace.data_);
             }
         }
         // ... notify ...
@@ -661,7 +681,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestWillRunLogIt (const ::ev::cur
         callbacks_.on_looper_thread_(tag, [this, a_data, a_options] (const std::string&) {
             // ... log?
             if ( HTTPOptions::Log == ( HTTPOptions::Log & a_options ) ) {
-                callbacks_.on_log_deferred_debug_(this, a_data);
+                callbacks_.on_log_deferred_(this, CC_JOB_LOG_LEVEL_VBS ,CC_JOB_LOG_STEP_HTTP, a_data);
             } else { // assuming trace
                 http_trace_.push_back({
                     /* code_ */ 0,
@@ -699,7 +719,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestSteppedLogIt (const ::ev::cur
         callbacks_.on_looper_thread_(tag, [this, a_data, a_options, code] (const std::string&) {
             // ... log?
             if ( HTTPOptions::Log == ( HTTPOptions::Log & a_options ) ) {
-                callbacks_.on_log_deferred_debug_(this, a_data);
+                callbacks_.on_log_deferred_(this, CC_JOB_LOG_LEVEL_VBS, CC_JOB_LOG_STEP_HTTP, a_data);
             } else { // assuming trace
                 http_trace_.push_back({
                     /* code_ */ code,

@@ -73,18 +73,18 @@ namespace casper
 
             private: // Helper(s)
 
-                ::cc::easy::HTTPClient*              http_;
-                ::cc::easy::OAuth2HTTPClient*        http_oauth2_;
-                HTTPOptions                          http_options_;
-                std::vector<HTTPTrace>               http_trace_;
+                ::cc::easy::HTTPClient*                         http_;
+                ::cc::easy::OAuth2HTTPClient*                   http_oauth2_;
+                HTTPOptions                                     http_options_;
+                std::vector<HTTPTrace>                          http_trace_;
 
             private: // Data
 
-                Operation                                       current_;       //!< Current operation.
-                std::vector<Operation>                          operations_;    //!< Chained operations.
-                std::string                                     operation_str_; //!< Current operation, string representation.
-                std::map<Operation, job::deferrable::Response>  responses_;     //!< Operations responses.
-                bool                                            allow_oauth2_restart_;
+                Operation                                       current_;              //!< Current operation.
+                std::vector<Operation>                          operations_;           //!< Chained operations.
+                std::string                                     operation_str_;        //!< Current operation, string representation.
+                std::map<Operation, job::deferrable::Response>  responses_;            //!< Operations responses.
+                bool                                            allow_oauth2_restart_; //!< Mainly for grant_type 'client_credentials' or 'authorization_code-auto'.
 
             public: // Constructor(s) / Destructor
 
@@ -98,18 +98,18 @@ namespace casper
 
             private: // Method(s) / Function(s)
 
-                void ScheduleLoadTokens           (const bool a_track, const char* const a_origin, const size_t a_delay);
-                void ScheduleSaveTokens           (const bool a_track, const char* const a_origin, const size_t a_delay);
-                void ScheduleAuthorization        (const bool a_track, const char* const a_origin, const size_t a_delay);
-                void SchedulePerformRequest       (const bool a_track, const char* const a_origin, const size_t a_delay);
-                void Finalize                     (const std::string& a_tag);
+                void ScheduleLoadTokens     (const bool a_track, const char* const a_origin, const size_t a_delay);
+                void ScheduleSaveTokens     (const bool a_track, const char* const a_origin, const size_t a_delay);
+                void ScheduleAuthorization  (const bool a_track, const char* const a_origin, const size_t a_delay);
+                void SchedulePerformRequest (const bool a_track, const char* const a_origin, const size_t a_delay);
+                void Finalize               (const std::string& a_tag);
 
             private: // Method(s) / Function(s) - HTTP && OAuth2 HTTP Client Request(s) Callbacks
 
-                void OnOAuth2TokensChanged      ();
-                void OnHTTPRequestCompleted     (const ::cc::easy::HTTPClient::RawValue& a_value);
-                void OnHTTPRequestError         (const ::cc::easy::HTTPClient::RawError& a_error);
-                void OnHTTPRequestFailure       (const ::cc::Exception& a_exception);
+                void OnOAuth2TokensChanged  ();
+                void OnHTTPRequestCompleted (const ::cc::easy::HTTPClient::RawValue& a_value);
+                void OnHTTPRequestError     (const ::cc::easy::HTTPClient::RawError& a_error);
+                void OnHTTPRequestFailure   (const ::cc::Exception& a_exception);
                 
             private: // Method(s) / Function(s) - HTTP && OAuth2 HTTP Client Logging Callbacks
 
@@ -135,7 +135,7 @@ namespace casper
         
         } // end of namespace 'worker'
     
-    } // end of namespace 'worker'
+    } // end of namespace 'proxy'
 
 } // end of namespace 'casper'
 
