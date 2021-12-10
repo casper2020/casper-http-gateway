@@ -542,16 +542,24 @@ void casper::proxy::worker::OAuth2Client::Evaluate (const uint64_t& a_id, const 
                          /* o_value  */ &data,
                          /* a_key    */ nullptr
         );
-        script_->Evaluate(data, a_expression, value);
-        switch(value.type()) {
-            case ::cc::v8::Value::Type::Int32:
-            case ::cc::v8::Value::Type::UInt32:
-            case ::cc::v8::Value::Type::Double:
-            case ::cc::v8::Value::Type::String:
-                o_value = value.AsString();
+        std::string expression = a_expression;
+        for ( uint8_t idx = 0 ; idx < 1 ; ++idx ) {
+            script_->Evaluate(data, expression, value);
+            switch(value.type()) {
+                case ::cc::v8::Value::Type::Int32:
+                case ::cc::v8::Value::Type::UInt32:
+                case ::cc::v8::Value::Type::Double:
+                case ::cc::v8::Value::Type::String:
+                    o_value = value.AsString();
+                    break;
+                default:
+                    throw ::cc::BadRequest("Unexpected // unsupported v8 evaluation result type of %u ", value.type());
+            }
+            if ( nullptr != strchr(o_value.c_str(), '$') ) {
+                expression = o_value;
+            } else {
                 break;
-            default:
-                throw ::cc::BadRequest("Unexpected // unsupported v8 evaluation result type of %u ", value.type());
+            }
         }
     } catch (const ::cc::v8::Exception& a_v8_exception) {
         throw ::cc::BadRequest("%s", a_v8_exception.what());
