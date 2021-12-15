@@ -106,9 +106,9 @@ void casper::proxy::worker::v8::Script::RSASignSHA256 (const ::v8::FunctionCallb
         std::string signature;
         if ( a_args.Length() >= 3 && false == a_args[3].IsEmpty() ) {
             const ::v8::String::Utf8Value& pwd = ::v8::String::Utf8Value(a_args.GetIsolate(), a_args[2]);
-            signature = ::cc::crypto::RSA::SignSHA256((*value), (*pem), (*pwd));
+            signature = ::cc::crypto::RSA::SignSHA256((*value), (*pem), (*pwd), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648);
         } else {
-            signature = ::cc::crypto::RSA::SignSHA256((*value), (*pem));
+            signature = ::cc::crypto::RSA::SignSHA256((*value), (*pem), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648);
         }
         a_args.GetReturnValue().Set(::v8::String::NewFromUtf8(a_args.GetIsolate(), signature.c_str(), ::v8::NewStringType::kNormal).ToLocalChecked());
     } catch (...) {

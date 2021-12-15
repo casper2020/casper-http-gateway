@@ -112,6 +112,15 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
             if ( false == headers_ref.isNull() ) {
                 headers = object2headers(headers_ref);
             }
+            proxy::worker::Config::HeadersPerMethod headers_per_method;
+            {
+                const Json::Value& headers_per_method_ref = json.Get(provider_ref, "headers_per_method", Json::ValueType::objectValue, &Json::Value::null);
+                if ( false == headers_per_method_ref.isNull() ) {
+                    for ( const auto& member : headers_per_method_ref.getMemberNames() ) {
+                        headers_per_method[member] = object2headers(json.Get(headers_per_method_ref, member.c_str(), Json::ValueType::objectValue, nullptr));
+                    }
+                }
+            }
             // ...
             proxy::worker::Config* p_config = nullptr;
             try {
@@ -125,10 +134,11 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                         timeouts["operation"]  = static_cast<Json::Int>(sk_storage_operation_timeout_);
                     }
                     p_config = new proxy::worker::Config( {
-                        /* http_    */ config,
-                        /* headers  */ headers,
-                        /* signing_ */ json.Get(provider_ref, "signing", Json::ValueType::objectValue, &Json::Value::null),
-                        /* storage_ */
+                        /* http_               */ config,
+                        /* headers             */ headers,
+                        /* headers_per_method_ */ headers_per_method,
+                        /* signing_            */ json.Get(provider_ref, "signing", Json::ValueType::objectValue, &Json::Value::null),
+                        /* storage_            */
                         proxy::worker::Config::Storage({
                             /* endpoints_ */ {
                                 /* tokens_  */ json.Get(endpoints_ref, "tokens", Json::ValueType::stringValue, nullptr).asString()
@@ -143,12 +153,13 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                     });
                 } else if ( 0 == strcasecmp(type_ref.asCString(), "storageless") ) {
                     p_config = new proxy::worker::Config( {
-                        /* http_    */ config,
-                        /* headers  */ headers,
-                        /* signing_ */ json.Get(provider_ref, "signing", Json::ValueType::objectValue, &Json::Value::null),
-                        /* storage_ */
+                        /* http_               */ config,
+                        /* headers             */ headers,
+                        /* headers_per_method_ */ headers_per_method,
+                        /* signing_            */ json.Get(provider_ref, "signing", Json::ValueType::objectValue, &Json::Value::null),
+                        /* storage_            */
                         proxy::worker::Config::Storageless({
-                            /* headers_ */ {}
+                            /* headers_ */ {},
                         })
                     });
                 } else {
@@ -300,11 +311,22 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
                             a_request.headers_[header.first].push_back("");
                         }
                         auto& last = a_request.headers_[header.first][a_request.headers_[header.first].size() - 1];
-                        if ( nullptr != strchr(v.c_str(), '$') ) {
+                        Evaluate(a_id, v, merged, last);
+                        merged["headers"][header.first] = last;
+                    }
+                }
+                // ... append or override headers per method ...
+                const auto hpm = provider_it->second->headers_per_method_.find(method);
+                if ( provider_it->second->headers_per_method_.end() != hpm ) {
+                    for ( auto header : hpm->second ) {
+                        for ( auto& v : header.second ) {
+                            const auto it = a_request.headers_.find(header.first);
+                            if ( a_request.headers_.end() == it ) {
+                                a_request.headers_[header.first].push_back("");
+                            }
+                            auto& last = a_request.headers_[header.first][a_request.headers_[header.first].size() - 1];
                             Evaluate(a_id, v, merged, last);
                             merged["headers"][header.first] = last;
-                        } else {
-                            last = v;
                         }
                     }
                 }
@@ -535,6 +557,22 @@ void casper::proxy::worker::OAuth2Client::Evaluate (const uint64_t& a_id, const 
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
     try {
+        const std::set<std::string> k_evaluation_map_ = {
+            "$.", "atob(", "NowUTCISO8601(", "Signature"
+        };
+        bool evaluate = false;
+        for ( auto it : k_evaluation_map_ ) {
+            if ( strstr(a_expression.c_str(), it.c_str()) ) {
+                evaluate = true;
+                break;
+            }
+        }
+        // ... evaluate?
+        if ( false == evaluate)  {
+            o_value = a_expression;
+            // ... done ..
+            return;
+        }
         ::v8::Persistent<::v8::Value> data; ::cc::v8::Value value;
         script_->SetData(/* a_name  */ ( std::to_string(a_id) + "-v8-data" ).c_str(),
                          /* a_data   */ json.Write(a_data).c_str(),

@@ -660,7 +660,6 @@ void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientValue (const ::ev::curl
  * @param a_request Request that will be running.
  * @param a_data    cURL(ed) style command ( for log proposes only ).
  * @param a_options Adjusted options for this request, for more info See \link proxy::worker::Deferred::HTTPOptions \link.
-
  */
 void casper::proxy::worker::Deferred::OnHTTPRequestWillRunLogIt (const ::ev::curl::Request& /* a_request */, const std::string& a_data, const proxy::worker::Deferred::HTTPOptions a_options)
 {
@@ -668,7 +667,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestWillRunLogIt (const ::ev::cur
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
     //... make sure that we're tracing or logging if it was requested to do it so ..
     if (
-        ( ( HTTPOptions::Trace == ( HTTPOptions::Trace & a_options ) || ( HTTPOptions::Trace == ( HTTPOptions::Log & a_options ) ) ) )
+        ( ( HTTPOptions::Trace == ( HTTPOptions::Trace & a_options ) || ( HTTPOptions::Trace == ( HTTPOptions::Trace & http_options_ ) ) ) )
                 &&
         (
             ( HTTPOptions::OAuth2 == ( HTTPOptions::OAuth2 & a_options ) && HTTPOptions::OAuth2 == ( HTTPOptions::OAuth2 & http_options_ ) )
@@ -705,7 +704,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestSteppedLogIt (const ::ev::cur
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
     //... make sure that we're tracing or logging if it was requested to do it so ..
     if (
-        ( ( HTTPOptions::Trace == ( HTTPOptions::Trace & a_options ) || ( HTTPOptions::Trace == ( HTTPOptions::Log & a_options ) ) ) )
+        ( ( HTTPOptions::Trace == ( HTTPOptions::Trace & a_options ) || ( HTTPOptions::Trace == ( HTTPOptions::Trace & http_options_ ) ) ) )
                 &&
         (
             ( HTTPOptions::OAuth2 == ( HTTPOptions::OAuth2 & a_options ) && HTTPOptions::OAuth2 == ( HTTPOptions::OAuth2 & http_options_ ) )
