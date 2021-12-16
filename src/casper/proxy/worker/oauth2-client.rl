@@ -27,6 +27,7 @@
 
 #include "cc/v8/exception.h"
 
+const char* const casper::proxy::worker::OAuth2Client::sk_tube_      = "oauth2-http-client";
 const Json::Value casper::proxy::worker::OAuth2Client::sk_behaviour_ = "default";
 
 /**
