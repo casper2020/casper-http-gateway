@@ -116,8 +116,15 @@ namespace casper
                 void LogHTTPRequest (const ::ev::curl::Request&, const std::string&);
                 void LogHTTPValue   (const ::ev::curl::Value&, const std::string&);
 
-                void LogHTTPOAuth2ClientRequest (const ::ev::curl::Request&, const std::string&);
-                void LogHTTPOAuth2ClientValue   (const ::ev::curl::Value&, const std::string&);
+                void LogHTTPOAuth2ClientRequest  (const ::ev::curl::Request&, const std::string&);
+                void LogHTTPOAuth2ClientValue    (const ::ev::curl::Value&, const std::string&);
+                
+            private: // Method(s) / Function(s) - HTTP && OAuth2 HTTP Client Debug Callbacks
+                
+                CC_IF_DEBUG(
+                    void LogHTTPOAuth2ClientDebug    (const ::ev::curl::Request&, const std::string&);
+                    void LogHTTPOAuth2ClientProgress (const ::ev::curl::Request&, const uint8_t, const bool);
+                )
 
             private: //  Method(s) / Function(s) - HTTP && OAuth2 HTTP Clients Callback(s)
                 

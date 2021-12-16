@@ -88,8 +88,13 @@ void casper::proxy::worker::Deferred::Run (const casper::proxy::worker::Argument
     );
     if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
         http_oauth2_->SetcURLedCallbacks({
-            /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientRequest, this, std::placeholders::_1, std::placeholders::_2),
-            /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientValue  , this, std::placeholders::_1, std::placeholders::_2)
+            /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientRequest , this, std::placeholders::_1, std::placeholders::_2),
+            /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientValue   , this, std::placeholders::_1, std::placeholders::_2)
+            CC_IF_DEBUG(
+                ,
+                /* progress_     */ nullptr, // std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientProgress, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                /* debug_        */ nullptr, // std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientDebug   , this, std::placeholders::_1, std::placeholders::_2)
+            )
         }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
     }
     // ... first, load tokens from DB ...
@@ -550,7 +555,8 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
         } else {
             // ... 'main' target is 'PerformRequest' operation response ...
             const std::vector<Deferred::Operation> priority = {
-                Deferred::Operation::PerformRequest, Deferred::Operation::LoadTokens, Deferred::Operation::RestartOAuth2, Deferred::Operation::SaveTokens
+                // TODO: on 2nd sequencer job failed - what response to send?
+                Deferred::Operation::PerformRequest, Deferred::Operation::LoadTokens, Deferred::Operation::RestartOAuth2
             };
             for ( const auto& p : priority ) {
                 const auto it = std::find_if(responses_.begin(), responses_.end(), [&p](const std::pair<Operation, job::deferrable::Response>& a_result) {
@@ -654,6 +660,35 @@ void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientValue (const ::ev::curl
     OnHTTPRequestSteppedLogIt(a_value, a_data, ( ( http_options_ &~ HTTPOptions::NonOAuth2 ) | HTTPOptions::OAuth2 ));
 }
 
+// MARK: - ⚠️ ☠️ THIS IS FOR DEBUG PROPOSES ONLY - NOT PRODUCTION READY ☠️ ⚠️
+CC_IF_DEBUG(
+/**
+ * @brief Called by an HTTP client when it's time to log data.
+ *
+ * @param a_request Request that is being executed.
+ * @param a_data    Data to log.
+ */
+void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientDebug (const ::ev::curl::Request& a_request, const std::string& a_data)
+{
+    // ... just log it ...
+    CC_DEBUG_LOG_MSG(CC_QUALIFIED_CLASS_NAME(this).c_str(),  "[%p] %s\n", &a_request, a_data.c_str());
+}
+            
+/**
+ * @brief Called by an HTTP client for progress report.
+ *
+ * @param a_request    Request that is being executed.
+ * @param a_percentage 0..100
+ * @param a_upload     True if it's related to data tx, false for data rx.
+ */
+void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientProgress (const ::ev::curl::Request& a_request, const uint8_t a_percentage, const bool a_upload)
+{
+    // ... just log it ...
+    CC_DEBUG_LOG_MSG(CC_QUALIFIED_CLASS_NAME(this).c_str(), "[%p] %8s: " UINT8_FMT "%% completed\n", &a_request, ( a_upload ? "UPLOAD" : "DOWNLOAD" ), a_percentage);
+}
+)
+
+// MARK: -
 /**
  * @brief Called by an HTTP client when a request will run and it's time to log data ( ⚠️ for logging proposes only, request has not started yet ! )
  *
