@@ -83,7 +83,8 @@ namespace casper
 
             private: // Method(s) / Function(s) - V8 Helper(s)
                 
-                void Evaluate (const uint64_t& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const;
+                void Evaluate (const uint64_t& a_id   , const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const;
+                void Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const;
 
             }; // end of class 'OAuth2Client'
         

@@ -556,51 +556,92 @@ uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestFailed (const ::c
  */
 void casper::proxy::worker::OAuth2Client::Evaluate (const uint64_t& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const
 {
-    const ::cc::easy::JSON<::cc::BadRequest> json;
+    const std::set<std::string> k_evaluation_map_ = {
+        "$.", "NowUTCISO8601(", "RSASignSHA256("
+    };
+    bool evaluate = false;
+    for ( auto it : k_evaluation_map_ ) {
+        if ( strstr(a_expression.c_str(), it.c_str()) ) {
+            evaluate = true;
+            break;
+        }
+    }
+    // ... evaluate?
+    if ( false == evaluate)  {
+        // ... no ...
+        o_value = a_expression;
+        // ... done ..
+        return;
+    }
+    // yes ....
     try {
-        const std::set<std::string> k_evaluation_map_ = {
-            "$.", "atob(", "NowUTCISO8601(", "Signature"
-        };
-        bool evaluate = false;
-        for ( auto it : k_evaluation_map_ ) {
-            if ( strstr(a_expression.c_str(), it.c_str()) ) {
-                evaluate = true;
-                break;
-            }
-        }
-        // ... evaluate?
-        if ( false == evaluate)  {
-            o_value = a_expression;
-            // ... done ..
-            return;
-        }
-        ::v8::Persistent<::v8::Value> data; ::cc::v8::Value value;
-        script_->SetData(/* a_name  */ ( std::to_string(a_id) + "-v8-data" ).c_str(),
-                         /* a_data   */ json.Write(a_data).c_str(),
-                         /* o_object */ nullptr,
-                         /* o_value  */ &data,
-                         /* a_key    */ nullptr
-        );
-        std::string expression = a_expression;
-        for ( uint8_t idx = 0 ; idx < 1 ; ++idx ) {
-            script_->Evaluate(data, expression, value);
-            switch(value.type()) {
-                case ::cc::v8::Value::Type::Int32:
-                case ::cc::v8::Value::Type::UInt32:
-                case ::cc::v8::Value::Type::Double:
-                case ::cc::v8::Value::Type::String:
-                    o_value = value.AsString();
+        // ... is addressable ?
+        std::string expression;
+        {
+            const std::set<std::string> k_addressable_func_map_ = {
+                "NowUTCISO8601(", "RSASignSHA256("
+            };
+            for ( const auto& it : k_addressable_func_map_ ) {
+                if ( a_expression.length() >= it.length() && 0 == strncmp(a_expression.c_str(), it.c_str(), it.length()) ) {
+                    if ( ')' != a_expression.c_str()[a_expression.length() - 1] ) {
+                        expression = it + "$.__instance__, " + ( a_expression.c_str() + it.length() );
+                    } else {
+                        expression = it + "$.__instance__" + ( a_expression.c_str() + it.length() );
+                    }
                     break;
-                default:
-                    throw ::cc::BadRequest("Unexpected // unsupported v8 evaluation result type of %u ", value.type());
+                }
             }
-            if ( nullptr != strchr(o_value.c_str(), '$') ) {
-                expression = o_value;
-            } else {
-                break;
-            }
+        }
+        // ... evaluate it now ...
+        if ( 0 != expression.length() ) {
+            // ... patch data ...
+            Json::Value data = a_data; data["__instance__"] = CC_OBJECT_HEX_ADDR(script_);
+            // ... evaluate it now ...
+            Evaluate((std::to_string(a_id) + "-v8-data"), expression, data, o_value);
+        } else {
+            // ... no patch needed, evaluate it now ...
+            Evaluate((std::to_string(a_id) + "-v8-data"), a_expression, a_data, o_value);
         }
     } catch (const ::cc::v8::Exception& a_v8_exception) {
-        throw ::cc::BadRequest("%s", a_v8_exception.what());
+        if ( nullptr == strstr(a_v8_exception.what(), a_expression.c_str()) ) {
+            throw ::cc::BadRequest("Un error occured while evaluation '%s': %s", a_expression.c_str(), a_v8_exception.what());
+        } else {
+            throw ::cc::BadRequest("%s", a_v8_exception.what());
+        }
+    }
+}
+
+/**
+ * @brief Evaluate a V8 expression.
+ *
+ * @param a_id         ID.
+ * @param a_expression Expression to evaluate.
+ * @param a_data       Data to load ( to be used during expression evaluation ).
+ * @param o_value      Evaluation result.
+ */
+void casper::proxy::worker::OAuth2Client::Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const
+{
+    const ::cc::easy::JSON<::cc::BadRequest> json;
+    
+    ::v8::Persistent<::v8::Value> v8_value; ::cc::v8::Value cc_value;
+    script_->SetData(/* a_name  */ a_id.c_str(),
+                     /* a_data   */ json.Write(a_data).c_str(),
+                     /* o_object */ nullptr,
+                     /* o_value  */ &v8_value,
+                     /* a_key    */ nullptr
+    );
+    script_->Evaluate(v8_value, a_expression, cc_value);
+    if ( true == script_->IsExceptionSet() ) {
+        throw ::cc::BadRequest("%s", script_->exception().what());
+    }
+    switch(cc_value.type()) {
+        case ::cc::v8::Value::Type::Int32:
+        case ::cc::v8::Value::Type::UInt32:
+        case ::cc::v8::Value::Type::Double:
+        case ::cc::v8::Value::Type::String:
+            o_value = cc_value.AsString();
+            break;
+        default:
+            throw ::cc::BadRequest("Unexpected // unsupported v8 evaluation ( of %s ), result type %u ", a_expression.c_str(), cc_value.type());
     }
 }

@@ -45,7 +45,7 @@ casper::proxy::worker::v8::Script::Script (const std::string& a_owner, const std
                              }
 )
 {
-    /* empty */
+    last_exception_ = nullptr;
 }
 
 /**
@@ -53,7 +53,9 @@ casper::proxy::worker::v8::Script::Script (const std::string& a_owner, const std
  */
 casper::proxy::worker::v8::Script::~Script ()
 {
-    /* empty */
+    if ( nullptr != last_exception_ ){
+        delete last_exception_;
+    }
 }
 
 // MARK: -
@@ -65,22 +67,9 @@ casper::proxy::worker::v8::Script::~Script ()
  */
 void casper::proxy::worker::v8::Script::NowUTCISO8601 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args)
 {
-    const ::v8::HandleScope handle_scope(a_args.GetIsolate());
-    
-    a_args.GetReturnValue().SetUndefined();
-    
-    if ( 0 != a_args.Length() ) {
-        // ... can't throw exceptions here ...
-        return;
-    }
-    
-    try {
-        const ::v8::Local<::v8::String> now = ::v8::String::NewFromUtf8(a_args.GetIsolate(), ::cc::UTCTime::NowISO8601DateTime().c_str(), ::v8::NewStringType::kNormal).ToLocalChecked();
-        a_args.GetReturnValue().Set(now);
-    } catch (...) {
-        // ... can't throw exceptions here ...
-        a_args.GetReturnValue().SetUndefined();
-    }
+    TryCall([] (const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>& a_args) {
+        a_args.GetReturnValue().Set(::v8::String::NewFromUtf8(a_args.GetIsolate(), ::cc::UTCTime::NowISO8601DateTime().c_str(), ::v8::NewStringType::kNormal).ToLocalChecked());
+    }, 0, a_args);
 }
 
 /**
@@ -90,28 +79,63 @@ void casper::proxy::worker::v8::Script::NowUTCISO8601 (const ::v8::FunctionCallb
  */
 void casper::proxy::worker::v8::Script::RSASignSHA256 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args)
 {
-    const ::v8::HandleScope handle_scope(a_args.GetIsolate());
-    
-    a_args.GetReturnValue().SetUndefined();
-    
-    if ( a_args.Length() < 2 || true == a_args[0].IsEmpty() || true == a_args[1].IsEmpty() ) {
-        // ... can't throw exceptions here ...
-        return;
-    }
+    TryCall([] (const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>& a_args) {
         
-    try {
-        const ::v8::String::Utf8Value& value = ::v8::String::Utf8Value(a_args.GetIsolate(), a_args[0]);
-        const ::v8::String::Utf8Value& pem   = ::v8::String::Utf8Value(a_args.GetIsolate(), a_args[1]);
-
+        const ::v8::String::Utf8Value& value = ::v8::String::Utf8Value(a_args.GetIsolate(), a_args[1]);
+        const ::v8::String::Utf8Value& pem   = ::v8::String::Utf8Value(a_args.GetIsolate(), a_args[2]);
+        
         std::string signature;
+        
         if ( a_args.Length() >= 3 && false == a_args[3].IsEmpty() ) {
-            const ::v8::String::Utf8Value& pwd = ::v8::String::Utf8Value(a_args.GetIsolate(), a_args[2]);
-            signature = ::cc::crypto::RSA::SignSHA256((*value), (*pem), (*pwd), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648);
+            const ::v8::String::Utf8Value& pwd = ::v8::String::Utf8Value(a_args.GetIsolate(), a_args[3]);
+            signature = ::cc::crypto::RSA::SignSHA256PKCS1((*value), (*pem), (*pwd), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648);
         } else {
-            signature = ::cc::crypto::RSA::SignSHA256((*value), (*pem), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648);
+            signature = ::cc::crypto::RSA::SignSHA256PKCS1((*value), (*pem), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648);
         }
+        
         a_args.GetReturnValue().Set(::v8::String::NewFromUtf8(a_args.GetIsolate(), signature.c_str(), ::v8::NewStringType::kNormal).ToLocalChecked());
+        
+    }, 2, a_args);
+}
+
+void casper::proxy::worker::v8::Script::TryCall (const std::function<void(const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>&)> a_function,
+                                                 const size_t a_argc, const ::v8::FunctionCallbackInfo<::v8::Value>& a_args)
+{
+    casper::proxy::worker::v8::Script* instance = nullptr;
+    try {
+        // ... handle scope needs to be created here ( ignore it if unused, not a bug ) ...
+        const ::v8::HandleScope scope(a_args.GetIsolate());
+        
+        a_args.GetReturnValue().SetUndefined();
+        // ... invalid number of arguments?
+        if ( a_args.Length() < 1 || true == a_args[0].IsEmpty() ) {
+            // ... done, can't throw exceptions here ...
+            return;
+        }
+        // ... from now on we can throw exceptions ...
+        instance = CC_OBJECT_FROM_HEX_ADDR((*::v8::String::Utf8Value(a_args.GetIsolate(), a_args[0])), casper::proxy::worker::v8::Script);
+        if ( nullptr != instance->last_exception_ ){
+            delete instance->last_exception_;
+            instance->last_exception_ = nullptr;
+        }
+        // ... validate number of arguments for this call ..
+        if ( a_args.Length() < ( a_argc + 1 ) || true == a_args[0].IsEmpty() || true == a_args[1].IsEmpty() || true == a_args[2].IsEmpty() ) {
+            throw ::cc::v8::Exception("Invalid expression evaluation: wrong number of arguments got " INT64_FMT ", expected " SIZET_FMT "!", static_cast<int64_t>(a_args.Length()), a_argc);
+        }
+        // ... perform call ...
+        a_function(scope, a_args);
+    } catch (const ::cc::v8::Exception& a_exception) {
+        // ... track it ...
+        instance->last_exception_ = new ::cc::v8::Exception(a_exception);
+        // ... can't throw exceptions here ...
+        a_args.GetReturnValue().SetUndefined();
     } catch (...) {
+        // ... track it ...
+        try {
+            ::cc::v8::Exception::Rethrow(/* a_unhandled */ false, __FILE__, __LINE__, __FUNCTION__);
+        } catch (const ::cc::v8::Exception& a_exception) {
+            instance->last_exception_ = new ::cc::v8::Exception(a_exception);
+        }
         // ... can't throw exceptions here ...
         a_args.GetReturnValue().SetUndefined();
     }

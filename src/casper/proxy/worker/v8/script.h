@@ -24,6 +24,7 @@
 
 #include "cc/v8/basic/evaluator.h"
 #include "cc/v8/value.h"
+#include "cc/v8/exception.h"
 
 #include "cc/macros.h"
 
@@ -45,6 +46,10 @@ namespace casper
                 class Script final : public ::cc::v8::basic::Evaluator
                 {
 
+                private: // Data
+
+                    ::cc::v8::Exception* last_exception_;
+                    
                 public: // Constructor(s) / Destructor
                     
                     Script () = delete;
@@ -56,7 +61,14 @@ namespace casper
                     
                     static void NowUTCISO8601 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
                     static void RSASignSHA256 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
-                                        
+                    static void TryCall       (const std::function<void(const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>&)> a_function,
+                                               const size_t, const ::v8::FunctionCallbackInfo<::v8::Value>&);
+                    
+                public: // Inline Method(s) / Function(s)
+                    
+                    inline const bool                  IsExceptionSet () const {                                        return nullptr != last_exception_;  };
+                    inline const ::cc::v8::Exception&  exception      () const { CC_ASSERT(nullptr != last_exception_); return *last_exception_;            }
+          
                 }; // end of class 'Script'
                 
             } // end of namespace 'v8'
