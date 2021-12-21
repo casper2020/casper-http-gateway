@@ -25,6 +25,8 @@
 
 #include "cc/ragel.h"
 
+#include "cc/fs/dir.h"
+
 #include "cc/v8/exception.h"
 
 const char* const casper::proxy::worker::OAuth2Client::sk_tube_      = "oauth2-http-client";
@@ -125,9 +127,22 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
             // ...
             proxy::worker::Config* p_config = nullptr;
             try {
+                // ... fix paths ...
+                Json::Value signing = json.Get(provider_ref, "signing", Json::ValueType::objectValue, &Json::Value::null);
+                if ( false == signing.isNull() && true == signing.isMember("keys") ) {
+                    Json::Value& keys = signing["keys"];
+                    if ( true == keys.isObject() ) {
+                        for ( const auto m : { "private", "public" } ) {
+                            if ( true == keys.isMember(m) && true == keys[m].isString() ) {
+                                keys[m] = cc::fs::Dir::RealPath(keys[m].asString());
+                            }
+                        }
+                    }
+                }
+                // ... storage or storageless?
                 if ( 0 == strcasecmp(type_ref.asCString(), "storage") ) {
                     const Json::Value& storage_ref = json.Get(provider_ref, "storage", Json::ValueType::objectValue, nullptr);
-                    const Json::Value& endpoints_ref = json.Get(storage_ref, "endpoints", Json::ValueType::objectValue, nullptr);                    
+                    const Json::Value& endpoints_ref = json.Get(storage_ref, "endpoints", Json::ValueType::objectValue, nullptr);
                     Json::Value timeouts = json.Get(storage_ref, "timeouts", Json::ValueType::objectValue, &Json::Value::null);
                     if ( true == timeouts.isNull() ) {
                         timeouts = Json::Value(Json::ValueType::objectValue);
@@ -138,7 +153,7 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                         /* http_               */ config,
                         /* headers             */ headers,
                         /* headers_per_method_ */ headers_per_method,
-                        /* signing_            */ json.Get(provider_ref, "signing", Json::ValueType::objectValue, &Json::Value::null),
+                        /* signing_            */ signing,
                         /* storage_            */
                         proxy::worker::Config::Storage({
                             /* endpoints_ */ {
@@ -157,7 +172,7 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                         /* http_               */ config,
                         /* headers             */ headers,
                         /* headers_per_method_ */ headers_per_method,
-                        /* signing_            */ json.Get(provider_ref, "signing", Json::ValueType::objectValue, &Json::Value::null),
+                        /* signing_            */ signing,
                         /* storage_            */
                         proxy::worker::Config::Storageless({
                             /* headers_ */ {},
