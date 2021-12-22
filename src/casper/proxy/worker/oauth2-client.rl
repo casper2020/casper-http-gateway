@@ -91,11 +91,14 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
             const Json::Value& type_ref       = json.Get(provider_ref, "type"      , Json::ValueType::stringValue , nullptr);
             const Json::Value& grant_type_ref = json.Get(oauth2_ref  , "grant_type", Json::ValueType::stringValue , nullptr);
             const Json::Value& grant_type_obj = json.Get(oauth2_ref  , grant_type_ref.asCString(), Json::ValueType::objectValue , nullptr);
+            const Json::Value  k_auto         = Json::Value(false);
             const ::cc::easy::OAuth2HTTPClient::Config config = ::cc::easy::OAuth2HTTPClient::Config({
                 /* oauth2_ */ {
-                    /* grant_type_   */ {
-                      /* id               */ grant_type_ref.asString(),
-                      /* rfc_6749_strict_ */ json.Get(grant_type_obj, "rfc6749", Json::ValueType::booleanValue, nullptr).asBool()
+                    /* grant_   */ {
+                      /* name_            */ grant_type_ref.asString(),
+                      /* type_            */ TranslatedGrantType(grant_type_ref.asString()),
+                      /* rfc_6749_strict_ */ json.Get(grant_type_obj, "rfc6749", Json::ValueType::booleanValue, nullptr).asBool(),
+                      /* auto_            */ json.Get(grant_type_obj, "auto", Json::ValueType::booleanValue, &k_auto).asBool()
                     },
                     /* urls_ */ {
                         /* authorization_ */ json.Get(oauth2_ref, "authorization_url", Json::ValueType::stringValue, nullptr).asString(),
@@ -111,7 +114,7 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
             });
             // ...
             proxy::worker::Config::Headers headers;
-            const Json::Value& headers_ref = json.Get(provider_ref, "headers", Json::ValueType::objectValue, nullptr);
+            const Json::Value& headers_ref = json.Get(provider_ref, "headers", Json::ValueType::objectValue, &Json::Value::null);
             if ( false == headers_ref.isNull() ) {
                 headers = object2headers(headers_ref);
             }
@@ -214,7 +217,6 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
     const ::cc::easy::JSON<::cc::BadRequest> json;
     // ... assuming BAD REQUEST ...
     o_response.code_ = CC_STATUS_CODE_BAD_REQUEST;
-
     //
     // IN payload:
     //
@@ -223,20 +225,23 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
     //    "tube": <string>,
     //    "ttr": <numeric>,
     //    "validity": <validity>,
+    //    "what": <string> : grant or http
+    //    "grant": <object> or "http": <object>
     // }
-
-    //
-    // Payload
-    //
-    bool               broker    = false;
-    const Json::Value& payload   = Payload(a_payload, &broker);
-    const Json::Value& http      = json.Get(payload, "http"     , Json::ValueType::objectValue, nullptr);
+    bool               broker  = false;
+    const Json::Value& payload = Payload(a_payload, &broker);
+    
+    
     const Json::Value& behaviour = json.Get(payload, "behaviour", Json::ValueType::stringValue, &sk_behaviour_);
     const Json::Value& provider  = json.Get(payload, "provider" , Json::ValueType::stringValue, nullptr);
     const auto& provider_it = providers_.find(provider.asString());
     if ( providers_.end() == provider_it ) {
         throw ::cc::BadRequest("Unknown provider '%s'!", provider.asCString());
     }
+    
+    const Json::Value& what_ref = json.Get(payload, "what"              , Json::ValueType::stringValue, nullptr);
+    const Json::Value& what_obj = json.Get(payload, what_ref.asCString(), Json::ValueType::objectValue, &Json::Value::null);
+    
     // ... prepare tracking info ...
     const ::casper::job::deferrable::Tracking tracking = {
         /* bjid_ */ a_id,
@@ -245,170 +250,106 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
         /* rcid_ */ RCID(),
         /* dpi_  */ "CPW",
     };
+
     // ... prepare arguments / parameters ...
     casper::proxy::worker::Arguments arguments = casper::proxy::worker::Arguments(
         {
             /* a_id        */ provider_it->first,
             /* a_type      */ provider_it->second->type_,
             /* a_config    */ provider_it->second->http_,
-            /* a_data      */ http,
+            /* a_data      */ what_obj,
             /* a_primitive */ ( true == broker && 0 == strcasecmp("gateway",  behaviour.asCString()) ),
             /* a_log_level */ config_.log_level()
         }
     );
-    // ... prepare request ...
-    {
-        const ::cc::easy::JSON<::cc::BadRequest> json;
-        
-        const auto& http = arguments.parameters().data_;
-        const Json::Value& url_ref      = json.Get(http, "url"     , Json::ValueType::stringValue, nullptr);
-        const Json::Value& method_ref   = json.Get(http, "method"  , Json::ValueType::stringValue, nullptr);
-        const Json::Value& body_ref     = json.Get(http, "body"    , Json::ValueType::objectValue, &Json::Value::null);
-        const Json::Value& timeouts_ref = json.Get(http, "timeouts", Json::ValueType::objectValue, &Json::Value::null);
-        //
-        Json::Value merged = payload;
-        //
-        // REQUEST
-        //
-        (void)arguments.parameters().request([&, this](proxy::worker::Parameters::Request& a_request) {
-            // ... V8 data ...
-            merged["signing"] = provider_it->second->signing_;
-            // ... method ...
-            const std::string method = method_ref.asString();
-            {
-                CC_RAGEL_DECLARE_VARS(method, method.c_str(), method.length());
-                CC_DIAGNOSTIC_PUSH();
-                CC_DIAGNOSTIC_IGNORED("-Wunreachable-code");
-                %%{
-                    machine ClientMachine;
-                    main := |*
-                        /get/i    => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::GET;    };
-                        /put/i    => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::PUT;    };
-                        /delete/i => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::DELETE; };
-                        /post/i   => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::POST;   };
-                        /patch/i  => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::PATCH;  };
-                        /head/i   => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::HEAD;   };
-                    *|;
-                    write data;
-                    write init;
-                    write exec;
-                }%%
-                CC_RAGEL_SILENCE_VARS(Client)
-                CC_DIAGNOSTIC_POP();
+    
+    const auto& provider_cfg = *provider_it->second;
+    // ... set v8 data ...
+    Json::Value v8_data = payload;
+    //
+    // COMMON
+    //
+    const auto set_timeouts = [&json] (const Json::Value& a_timeouts, proxy::worker::Config::Timeouts& o_timeouts) {
+        // ... timeouts ...
+        if ( false == a_timeouts.isNull() ) {
+            const Json::Value connection_ref = json.Get(a_timeouts, "connection", Json::ValueType::uintValue, &Json::Value::null);
+            if ( false == connection_ref.isNull() ) {
+                o_timeouts.connection_ = static_cast<long>(connection_ref.asInt64());
             }
-            const Json::Value& req_headers_ref  = json.Get(http           , "headers"     , Json::ValueType::objectValue, nullptr);
-            const Json::Value& content_type_ref = json.Get(req_headers_ref, "Content-Type", Json::ValueType::stringValue, nullptr);
-            // ... body ...
-            if ( false == body_ref.isNull() ) {
-                if ( 0 == strncasecmp(content_type_ref.asCString(), "application/json", sizeof(char) * 16) ) {
-                    a_request.body_ = json.Write(body_ref);
-                } else {
-                    a_request.body_ = body_ref.asString();
-                }
-            }
-            merged["body"] = a_request.body_;
-            // ... headers ...
-            {
-                if ( false == http.isMember("headers") ) {
-                    merged["headers"] = Json::Value(Json::ValueType::objectValue);
-                } else {
-                    merged["headers"] = http["headers"];
-                }
-                for ( auto key : req_headers_ref.getMemberNames() ) {
-                    const Json::Value& header = json.Get(req_headers_ref, key.c_str(), Json::ValueType::stringValue, nullptr);
-                    merged["headers"][key] = header.asString();
-                    a_request.headers_[key] = { header.asString() };
-                }
-                // ... append or override headers ...
-                for ( auto header : provider_it->second->headers_ ) {
-                    for ( auto& v : header.second ) {
-                        const auto it = a_request.headers_.find(header.first);
-                        if ( a_request.headers_.end() == it ) {
-                            a_request.headers_[header.first].push_back("");
-                        }
-                        auto& last = a_request.headers_[header.first][a_request.headers_[header.first].size() - 1];
-                        Evaluate(a_id, v, merged, last);
-                        merged["headers"][header.first] = last;
-                    }
-                }
-                // ... append or override headers per method ...
-                const auto hpm = provider_it->second->headers_per_method_.find(method);
-                if ( provider_it->second->headers_per_method_.end() != hpm ) {
-                    for ( auto header : hpm->second ) {
-                        for ( auto& v : header.second ) {
-                            const auto it = a_request.headers_.find(header.first);
-                            if ( a_request.headers_.end() == it ) {
-                                a_request.headers_[header.first].push_back("");
-                            }
-                            auto& last = a_request.headers_[header.first][a_request.headers_[header.first].size() - 1];
-                            Evaluate(a_id, v, merged, last);
-                            merged["headers"][header.first] = last;
-                        }
-                    }
-                }
-            }
-            // ... URL V8(ing)?
-            const std::string url = url_ref.asString();
-            if ( nullptr != strchr(url.c_str(), '$') ) {
-                Evaluate(a_id, url, merged, a_request.url_);
-            } else {
-                a_request.url_ = url;
-            }
-            // ... timeouts ...
-            if ( false == timeouts_ref.isNull() ) {
-                const Json::Value connection_ref = json.Get(timeouts_ref, "connection", Json::ValueType::uintValue, &Json::Value::null);
-                if ( false == connection_ref.isNull() ) {
-                    a_request.timeouts_.connection_ = static_cast<long>(connection_ref.asInt64());
-                }
-                const Json::Value operation_ref = json.Get(timeouts_ref, "operation", Json::ValueType::uintValue, &Json::Value::null);
-                if ( false == operation_ref.isNull() ) {
-                    a_request.timeouts_.operation_ = static_cast<long>(operation_ref.asInt64());
-                }
-            }
-            // ... storageless?
-            if ( proxy::worker::Config::Type::Storageless == arguments.parameters().type_ ) {
-                // ... copy latest tokens available?..
-                a_request.tokens_ = provider_it->second->storageless().tokens_;
-            }
-        });
-        //
-        // STORAGE
-        //
-        {
-            // ... prepare load / save tokens ...
-            if ( proxy::worker::Config::Type::Storage == arguments.parameters().type_ ) {
-                const auto& storage_cfg = provider_it->second->storage();
-                // ... merge default values for 'arguments' ...
-                if ( false == storage_cfg.arguments_.isNull() ) {
-                    const auto& args = storage_cfg.arguments_;
-                    for ( auto member : args.getMemberNames() ) {
-                        if ( false == merged.isMember(member) ) {
-                            merged[member] = args[member];
-                        }
-                    }
-                }
-                // ... setup load/save tokens ...
-                arguments.parameters().storage([&, this](proxy::worker::Parameters::Storage& a_storage){
-                    // ... copy config headers ...
-                    a_storage.headers_ = storage_cfg.headers_;
-                    // ... override and / or merge headers?
-                    for ( const auto& header : a_storage.headers_ ) {
-                        auto& vector = a_storage.headers_[header.first];
-                        for ( size_t idx = 0 ; idx < header.second.size() ; ++idx ) {
-                            Evaluate(a_id, header.second[idx], merged, vector[idx]);
-                        }
-                    }
-                    a_storage.headers_["Content-Type"] = { "application/json; charset=utf-8" };
-                    // ... URL V8(ing) ?
-                    const std::string url = storage_cfg.endpoints_.tokens_;
-                    if ( nullptr != strchr(url.c_str(), '$') ) {
-                        Evaluate(a_id, url, merged, a_storage.url_);
-                    } else {
-                        a_storage.url_ = url;
-                    }
-                });
+            const Json::Value operation_ref = json.Get(a_timeouts, "operation", Json::ValueType::uintValue, &Json::Value::null);
+            if ( false == operation_ref.isNull() ) {
+                o_timeouts.operation_ = static_cast<long>(operation_ref.asInt64());
             }
         }
+    };
+    //
+    // STORAGE
+    //
+    const auto set_storage = [this, &tracking, &arguments, &provider_cfg, &v8_data] (::cc::easy::OAuth2HTTPClient::Tokens* o_tokens) {
+        // ... storageless?
+        if ( proxy::worker::Config::Type::Storageless == arguments.parameters().type_ ) {
+            // ... copy latest tokens available?..
+            if ( nullptr != o_tokens ) {
+                (*o_tokens) = provider_cfg.storageless().tokens_;
+            }
+        } else if ( proxy::worker::Config::Type::Storage == arguments.parameters().type_ ) {
+            // ... prepare load / save tokens ...
+            const auto& storage_cfg = provider_cfg.storage();
+            // ... merge default values for 'arguments' ...
+            if ( false == storage_cfg.arguments_.isNull() ) {
+                const auto& args = storage_cfg.arguments_;
+                for ( auto member : args.getMemberNames() ) {
+                    if ( false == v8_data.isMember(member) ) {
+                        v8_data[member] = args[member];
+                    }
+                }
+            }
+            // ... setup load/save tokens ...
+            arguments.parameters().storage([&, this](proxy::worker::Parameters::Storage& a_storage){
+                // ... copy config headers ...
+                a_storage.headers_ = storage_cfg.headers_;
+                // ... override and / or merge headers?
+                for ( const auto& header : a_storage.headers_ ) {
+                    auto& vector = a_storage.headers_[header.first];
+                    for ( size_t idx = 0 ; idx < header.second.size() ; ++idx ) {
+                        Evaluate(tracking.bjid_, header.second[idx], v8_data, vector[idx]);
+                    }
+                }
+                a_storage.headers_["Content-Type"] = { "application/json; charset=utf-8" };
+                // ... URL V8(ing) ?
+                const std::string url = storage_cfg.endpoints_.tokens_;
+                if ( nullptr != strchr(url.c_str(), '$') ) {
+                    Evaluate(tracking.bjid_, url, v8_data, a_storage.url_);
+                } else {
+                    a_storage.url_ = url;
+                }
+            });
+        }
+    };
+    //
+    // GRANT OR HTTP REQUEST
+    //
+    if ( 0 == strcasecmp(what_ref.asCString(), "grant") ) {
+        // ... set 'grant' operation arguments ...
+        (void)arguments.parameters().auth_code_request([this, &set_timeouts, &set_storage, &json, &tracking, &provider_cfg, &arguments, &v8_data](proxy::worker::Parameters::GrantAuthCodeRequest& auth_code) {
+            // ... set timeouts ...
+            set_timeouts(json.Get(arguments.parameters().data_, "timeouts", Json::ValueType::objectValue, &Json::Value::null), auth_code.timeouts_);
+            // ... set storage ...
+            set_storage(nullptr);
+            // ... set request ....
+            SetupGrantRequest(tracking, provider_cfg, arguments, auth_code, v8_data);
+        });
+    } else if ( 0 == strcasecmp(what_ref.asCString(), "http") ) {
+        (void)arguments.parameters().http_request([this, &set_timeouts, &set_storage, &json, tracking, &provider_cfg, &arguments, &v8_data](proxy::worker::Parameters::HTTPRequest& request) {
+            // ... set timeouts ...
+            set_timeouts(json.Get(arguments.parameters().data_, "timeouts", Json::ValueType::objectValue, &Json::Value::null), request.timeouts_);
+            // ... set storage ...
+            set_storage(&request.tokens_);
+            // .. set request ...
+            SetupHTTPRequest(tracking, provider_cfg, arguments, request, v8_data);
+        });
+    } else { // ... WTF?
+        throw ::cc::BadRequest("Don't know how to process '%s' - unknown operation!", what_ref.asCString());
     }
     // ... schedule deferred HTTP request ...
     dynamic_cast<casper::proxy::worker::Dispatcher*>(d_.dispatcher_)->Push(tracking, arguments);
@@ -559,7 +500,187 @@ uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestFailed (const ::c
     return code;
 }
 
-// MARK: - Method(s) / Function(s) -  V8 Helper(s)
+// MARK:  - Method(s) / Function(s) - Schedule Helper(s)
+
+::cc::easy::OAuth2HTTPClient::GrantType casper::proxy::worker::OAuth2Client::TranslatedGrantType (const std::string& a_name)
+{
+    const ::cc::easy::JSON<::cc::BadRequest> json;
+    ::cc::easy::OAuth2HTTPClient::GrantType  type = ::cc::easy::OAuth2HTTPClient::GrantType::NotSet;
+    {
+        CC_RAGEL_DECLARE_VARS(grant_type, a_name.c_str(), a_name.length());
+        CC_DIAGNOSTIC_PUSH();
+        CC_DIAGNOSTIC_IGNORED("-Wunreachable-code");
+        %%{
+            machine GrantTypeMachine;
+            main := |*
+                /authorization_code/i => { type = ::cc::easy::OAuth2HTTPClient::GrantType::AuthorizationCode; };
+                /client_credentials/i => { type = ::cc::easy::OAuth2HTTPClient::GrantType::ClientCredentials; };
+            *|;
+            write data;
+            write init;
+            write exec;
+        }%%
+        CC_RAGEL_SILENCE_VARS(GrantType)
+        CC_DIAGNOSTIC_POP();
+    }
+    // ... process ...
+    switch(type) {
+        case ::cc::easy::OAuth2HTTPClient::GrantType::AuthorizationCode:
+        case ::cc::easy::OAuth2HTTPClient::GrantType::ClientCredentials:
+            break;
+        default:
+            throw ::cc::NotImplemented("OAuth2 grant type '%s' not implemented // not supported!", a_name.c_str());
+    }
+    // ... done ...
+    return type;
+}
+
+/**
+ * @brief Setup a 'grant_type' operation.
+ *
+ * @param a_tracking  Request tracking info.
+ * @param a_payload   Job payload.
+ * @param a_arguments HTTP args.
+ */
+void casper::proxy::worker::OAuth2Client::SetupGrantRequest (const ::casper::job::deferrable::Tracking& a_tracking,
+                                                             const casper::proxy::worker::Config& a_provider, casper::proxy::worker::Arguments& a_arguments, casper::proxy::worker::Parameters::GrantAuthCodeRequest& a_request,
+                                                             Json::Value& o_v8_data)
+{
+    const ::cc::easy::JSON<::cc::BadRequest> json;
+    // ... process ...
+    const auto type_str = json.Get(a_arguments.parameters().data_, "type", Json::ValueType::stringValue, nullptr).asString();
+    const auto type     = TranslatedGrantType(type_str);
+    switch(type) {
+        case ::cc::easy::OAuth2HTTPClient::GrantType::AuthorizationCode:
+            break;
+        default:
+            throw ::cc::NotImplemented("OAuth2 grant type '%s' not implemented // not supported!", type_str.c_str());
+    }
+    //
+    // ... assuming 'authorization_code' grant type ...
+    //
+    if ( type != a_provider.http_.oauth2_.grant_.type_ ) {
+        throw ::cc::NotImplemented("OAuth2 grant type '%s' not supported for this provider!", type_str.c_str());
+    }
+    // ... setup ...
+    const Json::Value& scope = json.Get(a_arguments.parameters().data_, "scope", Json::ValueType::stringValue, &Json::Value::null);
+    if ( false == scope.isNull() ) {
+        a_request.scope_ = scope.asString();
+    }
+    const Json::Value& state = json.Get(a_arguments.parameters().data_, "state", Json::ValueType::stringValue, &Json::Value::null);
+    if ( false == state.isNull() ) {
+        a_request.state_ = state.asString();
+    }
+    a_request.value_ = json.Get(a_arguments.parameters().data_, "code", Json::ValueType::stringValue, nullptr).asString();
+}
+
+/**
+ * @brief Process a 'http' operation.
+ *
+ * @param a_tracking  Request tracking info.
+ * @param a_payload   Job payload.
+ * @param a_arguments HTTP args.
+ */
+void casper::proxy::worker::OAuth2Client::SetupHTTPRequest (const ::casper::job::deferrable::Tracking& a_tracking,
+                                                            const casper::proxy::worker::Config& a_provider, casper::proxy::worker::Arguments& a_arguments, casper::proxy::worker::Parameters::HTTPRequest& a_request,
+                                                            Json::Value& o_v8_data)
+{
+    const ::cc::easy::JSON<::cc::BadRequest> json;
+
+    // ... prepare request ...
+    const auto& http = a_arguments.parameters().data_;
+    const Json::Value& url_ref    = json.Get(http, "url"   , Json::ValueType::stringValue, nullptr);
+    const Json::Value& method_ref = json.Get(http, "method", Json::ValueType::stringValue, nullptr);
+    const Json::Value& body_ref   = json.Get(http, "body"  , Json::ValueType::objectValue, &Json::Value::null);
+    //
+    // REQUEST
+    //
+    // ... V8 data ...
+    o_v8_data["signing"]  = a_provider.signing_;
+    // ... method ...
+    const std::string method = method_ref.asString();
+    {
+        CC_RAGEL_DECLARE_VARS(method, method.c_str(), method.length());
+        CC_DIAGNOSTIC_PUSH();
+        CC_DIAGNOSTIC_IGNORED("-Wunreachable-code");
+        %%{
+            machine ClientMachine;
+            main := |*
+                /get/i    => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::GET;    };
+                /put/i    => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::PUT;    };
+                /delete/i => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::DELETE; };
+                /post/i   => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::POST;   };
+                /patch/i  => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::PATCH;  };
+                /head/i   => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::HEAD;   };
+            *|;
+            write data;
+            write init;
+            write exec;
+        }%%
+        CC_RAGEL_SILENCE_VARS(Client)
+        CC_DIAGNOSTIC_POP();
+    }
+    const Json::Value& req_headers_ref  = json.Get(http           , "headers"     , Json::ValueType::objectValue, nullptr);
+    const Json::Value& content_type_ref = json.Get(req_headers_ref, "Content-Type", Json::ValueType::stringValue, nullptr);
+    // ... body ...
+    if ( false == body_ref.isNull() ) {
+        if ( 0 == strncasecmp(content_type_ref.asCString(), "application/json", sizeof(char) * 16) ) {
+            a_request.body_ = json.Write(body_ref);
+        } else {
+            a_request.body_ = body_ref.asString();
+        }
+    }
+    o_v8_data["body"] = a_request.body_;
+    // ... headers ...
+    {
+        if ( false == http.isMember("headers") ) {
+            o_v8_data["headers"] = Json::Value(Json::ValueType::objectValue);
+        } else {
+            o_v8_data["headers"] = http["headers"];
+        }
+        for ( auto key : req_headers_ref.getMemberNames() ) {
+            const Json::Value& header = json.Get(req_headers_ref, key.c_str(), Json::ValueType::stringValue, nullptr);
+            o_v8_data["headers"][key] = header.asString();
+            a_request.headers_[key] = { header.asString() };
+        }
+        // ... append or override headers ...
+        for ( auto header : a_provider.headers_ ) {
+            for ( auto& v : header.second ) {
+                const auto it = a_request.headers_.find(header.first);
+                if ( a_request.headers_.end() == it ) {
+                    a_request.headers_[header.first].push_back("");
+                }
+                auto& last = a_request.headers_[header.first][a_request.headers_[header.first].size() - 1];
+                Evaluate(a_tracking.bjid_, v, o_v8_data, last);
+                o_v8_data["headers"][header.first] = last;
+            }
+        }
+        // ... append or override headers per method ...
+        const auto hpm = a_provider.headers_per_method_.find(method);
+        if ( a_provider.headers_per_method_.end() != hpm ) {
+            for ( auto header : hpm->second ) {
+                for ( auto& v : header.second ) {
+                    const auto it = a_request.headers_.find(header.first);
+                    if ( a_request.headers_.end() == it ) {
+                        a_request.headers_[header.first].push_back("");
+                    }
+                    auto& last = a_request.headers_[header.first][a_request.headers_[header.first].size() - 1];
+                    Evaluate(a_tracking.bjid_, v, o_v8_data, last);
+                    o_v8_data["headers"][header.first] = last;
+                }
+            }
+        }
+    }
+    // ... URL V8(ing)?
+    const std::string url = url_ref.asString();
+    if ( nullptr != strchr(url.c_str(), '$') ) {
+        Evaluate(a_tracking.bjid_, url, o_v8_data, a_request.url_);
+    } else {
+        a_request.url_ = url;
+    }
+}
+
+// MARK: - Method(s) / Function(s) - V8 Helper(s)
 
 /**
  * @brief Evaluate a V8 expression.

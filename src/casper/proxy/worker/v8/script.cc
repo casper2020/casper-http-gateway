@@ -98,6 +98,12 @@ void casper::proxy::worker::v8::Script::RSASignSHA256 (const ::v8::FunctionCallb
     }, 2, a_args);
 }
 
+/**
+ * @brief Try-catch function call.
+ *
+ * @param a_function Function to call.
+ * @param a_args     V8 arguments ( including function args ).
+ */
 void casper::proxy::worker::v8::Script::TryCall (const std::function<void(const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>&)> a_function,
                                                  const size_t a_argc, const ::v8::FunctionCallbackInfo<::v8::Value>& a_args)
 {

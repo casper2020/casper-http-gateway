@@ -221,6 +221,11 @@ namespace casper
                     ::ev::curl::Request::Timeouts        timeouts_;
                 } Storage;
 
+                enum class RequestType : uint8_t {
+                    OAuth2Grant = 0x01,
+                    HTTP
+                };
+                
                 typedef struct {
                     ::ev::curl::Request::HTTPRequestType method_;
                     std::string                          url_;
@@ -228,7 +233,15 @@ namespace casper
                     ::ev::curl::Request::Headers         headers_;
                     ::ev::curl::Request::Timeouts        timeouts_;
                     ::cc::easy::OAuth2HTTPClient::Tokens tokens_;
-                } Request;
+                } HTTPRequest;
+                
+                typedef struct {
+                    std::string                          value_;    //!< authorization code value
+                    std::string                          scope_;    //!< scope
+                    std::string                          state_;    //!< state
+                    ::ev::curl::Request::Timeouts        timeouts_; //!<
+                    ::cc::easy::OAuth2HTTPClient::Tokens tokens_;   //!<
+                } GrantAuthCodeRequest;
                 
             public: // Const Data
                 
@@ -241,8 +254,9 @@ namespace casper
                 
             private: // Data
                 
-                Storage*                                    storage_; //!< Evaluated storage request data.
-                Request                                     request_; //!< Evaluated request data.
+                Storage*                                    storage_;       //!< Evaluated storage request data.
+                HTTPRequest*                                http_req_;      //!< Evaluated HTTP request data.
+                GrantAuthCodeRequest*                       auth_code_req_; //!< Evaludated authorization code request
                 
             public: // Constructor(s) / Destructor
                 
@@ -263,22 +277,7 @@ namespace casper
                             const ::cc::easy::OAuth2HTTPClient::Config& a_config,
                             const Json::Value& a_data, const bool a_primitive, const int a_log_level)
                  : id_(a_id), type_(a_type), config_(a_config), data_(a_data), primitive_(a_primitive), log_level_(a_log_level),
-                   storage_(nullptr),
-                   request_({
-                       /* method_   */ ::ev::curl::Request::HTTPRequestType::NotSet,
-                       /* url_      */ "",
-                       /* body_     */ "",
-                       /* headers_  */ {},
-                       /* timeouts_ */ { -1, -1 },
-                       /* tokens_   */ {
-                           /* type_       */ "",
-                           /* access_     */ "",
-                           /* refresh_    */ "",
-                           /* expires_in_ */  0,
-                           /* scope_      */ "",
-                           /* on_change_  */ nullptr
-                        }
-                   })
+                   storage_(nullptr), http_req_(nullptr), auth_code_req_(nullptr)
                 {
                     /* empty */
                 }
@@ -290,10 +289,16 @@ namespace casper
                  */
                 Parameters (const Parameters& a_parameters)
                  : id_(a_parameters.id_), type_(a_parameters.type_), config_(a_parameters.config_), data_(a_parameters.data_), primitive_(a_parameters.primitive_), log_level_(a_parameters.log_level_),
-                   storage_(nullptr), request_(a_parameters.request_)
+                   storage_(nullptr), http_req_(nullptr), auth_code_req_(nullptr)
                 {
                     if ( nullptr != a_parameters.storage_ ) {
                         storage_ = new Storage(*a_parameters.storage_);
+                    }
+                    if ( nullptr != a_parameters.http_req_ ) {
+                        http_req_ = new HTTPRequest(*a_parameters.http_req_);
+                    }
+                    if ( nullptr != a_parameters.auth_code_req_ ) {
+                        auth_code_req_ = new GrantAuthCodeRequest(*a_parameters.auth_code_req_);
                     }
                 }
                 
@@ -304,6 +309,12 @@ namespace casper
                 {
                     if ( nullptr != storage_ ) {
                         delete storage_;
+                    }
+                    if ( nullptr != http_req_ ) {
+                        delete http_req_;
+                    }
+                    if ( nullptr != auth_code_req_ ) {
+                        delete auth_code_req_;
                     }
                 }
 
@@ -380,25 +391,57 @@ namespace casper
                     return *storage_;
                 }
                 
-                /**
-                 * @return R/O access to request configs.
-                 */
-                inline const Request& request () const
+                inline RequestType request_type () const
                 {
-                    return request_;
+                    if ( nullptr != http_req_ ) {
+                        return RequestType::HTTP;
+                    } else if ( nullptr != auth_code_req_ ) {
+                        return RequestType::OAuth2Grant;
+                    }
+                    throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
                 }
                 
                 /**
-                 * @brief Prepare request config, exception for better tracking of variables write acccess.
-                 *
-                 * @return R/O access to request configs.
+                 * @return R/O access to HTTP request data.
                  */
-                inline const Request& request (const std::function<void(Request&)>& a_callback)
+                inline const HTTPRequest& http_request () const
                 {
+                    if ( nullptr != http_req_ ) {
+                        return *http_req_;
+                    }
+                    throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                }
+                
+                /**
+                 * @brief Prepare request data, exception for better tracking of variables write acccess.
+                 *
+                 * @return R/O access to request data.
+                 */
+                inline const HTTPRequest& http_request (const std::function<void(HTTPRequest&)>& a_callback)
+                {
+                    CC_DEBUG_ASSERT(nullptr == auth_code_req_);
+                    // ... if doesn't exists yet ...
+                    if ( nullptr == http_req_ ) {
+                        http_req_ = new HTTPRequest({
+                            /* method_   */ ::ev::curl::Request::HTTPRequestType::NotSet,
+                            /* url_      */ "",
+                            /* body_     */ "",
+                            /* headers_  */ {},
+                            /* timeouts_ */ { -1, -1 },
+                            /* tokens_   */ {
+                                /* type_       */ "",
+                                /* access_     */ "",
+                                /* refresh_    */ "",
+                                /* expires_in_ */  0,
+                                /* scope_      */ "",
+                                /* on_change_  */ nullptr
+                             }
+                        });
+                    }
                     // ... callback ...
-                    a_callback(request_);
+                    a_callback(*http_req_);
                     // ... done ...
-                    return request_;
+                    return *http_req_;
                 }
                 
                 /**
@@ -408,10 +451,18 @@ namespace casper
                  */
                 inline ::cc::easy::OAuth2HTTPClient::Tokens& tokens (const std::function<void(::cc::easy::OAuth2HTTPClient::Tokens&)>& a_callback)
                 {
-                    // ... callback ...
-                    a_callback(request_.tokens_);
-                    // ... done ...
-                    return request_.tokens_;
+                    if ( nullptr != auth_code_req_ ) {
+                        // ... callback ...
+                        a_callback(auth_code_req_->tokens_);
+                        // ... done ...
+                        return auth_code_req_->tokens_;
+                    } else if ( nullptr != http_req_ ) {
+                        // ... callback ...
+                        a_callback(http_req_->tokens_);
+                        // ... done ...
+                        return http_req_->tokens_;
+                    }
+                    throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
                 }
 
                 /**
@@ -419,7 +470,57 @@ namespace casper
                  */
                 inline const ::cc::easy::OAuth2HTTPClient::Tokens& tokens () const
                 {
-                    return request_.tokens_;
+                    if ( nullptr != auth_code_req_ ) {
+                        // ... done ...
+                        return auth_code_req_->tokens_;
+                    } else if ( nullptr != http_req_ ) {
+                        // ... done ...
+                        return http_req_->tokens_;
+                    }
+                    throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                }
+                
+                /**
+                 * @return R/O access to authorization code data.
+                 */
+                inline const GrantAuthCodeRequest& auth_code_request () const
+                {
+                    if ( nullptr != auth_code_req_ ) {
+                        return *auth_code_req_;
+                    }
+                    throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                }
+                
+                /**
+                 * @brief Prepare authorization code request, exception for better tracking of variables write acccess.
+                 *
+                 * @return R/O access to authorization code request.
+                 */
+                inline const GrantAuthCodeRequest& auth_code_request (const std::function<void(GrantAuthCodeRequest&)>& a_callback)
+                {
+                    CC_DEBUG_ASSERT(nullptr == http_req_);
+                    // ... if doesn't exists yet ...
+                    if ( nullptr == auth_code_req_ ) {
+                        // ... create it now ...
+                        auth_code_req_ = new GrantAuthCodeRequest({
+                            /* value_ */ "",
+                            /* scope_ */ "",
+                            /* state_ */ "",
+                            /* timeouts_ */ { -1, -1 },
+                            /* tokens_   */ {
+                                /* type_       */ "",
+                                /* access_     */ "",
+                                /* refresh_    */ "",
+                                /* expires_in_ */  0,
+                                /* scope_      */ "",
+                                /* on_change_  */ nullptr
+                             }
+                        });
+                    }
+                    // ... callback ...
+                    a_callback(*auth_code_req_);
+                    // ... done ...
+                    return *auth_code_req_;
                 }
 
             }; // end of class 'Parameters'

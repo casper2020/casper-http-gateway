@@ -80,6 +80,18 @@ namespace casper
                 
                 uint16_t OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
                 uint16_t OnDeferredRequestFailed    (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload);
+                
+                
+            private: // Method(s) / Function(s) - Schedule Helper(s)
+
+                ::cc::easy::OAuth2HTTPClient::GrantType TranslatedGrantType (const std::string& a_name);
+
+                void SetupGrantRequest (const ::casper::job::deferrable::Tracking& a_tracking,
+                                        const casper::proxy::worker::Config& a_provider, casper::proxy::worker::Arguments& a_arguments, casper::proxy::worker::Parameters::GrantAuthCodeRequest& a_auth_code,
+                                        Json::Value& o_v8_data);
+                void SetupHTTPRequest  (const ::casper::job::deferrable::Tracking& a_tracking,
+                                        const casper::proxy::worker::Config& a_provider, casper::proxy::worker::Arguments& a_arguments, casper::proxy::worker::Parameters::HTTPRequest& a_request,
+                                        Json::Value& o_v8_data);
 
             private: // Method(s) / Function(s) - V8 Helper(s)
                 

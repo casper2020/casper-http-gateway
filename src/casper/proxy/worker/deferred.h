@@ -80,11 +80,11 @@ namespace casper
 
             private: // Data
 
-                Operation                                       current_;              //!< Current operation.
-                std::vector<Operation>                          operations_;           //!< Chained operations.
-                std::string                                     operation_str_;        //!< Current operation, string representation.
-                std::map<Operation, job::deferrable::Response>  responses_;            //!< Operations responses.
-                bool                                            allow_oauth2_restart_; //!< Mainly for grant_type 'client_credentials' or 'authorization_code-auto'.
+                Operation                                       current_;               //!< Current operation.
+                std::vector<Operation>                          operations_;            //!< Chained operations.
+                std::string                                     operation_str_;         //!< Current operation, string representation.
+                std::map<Operation, job::deferrable::Response>  responses_;             //!< Operations responses.
+                bool                                            allow_oauth2_restart_;  //!< Mainly for grant_type 'client_credentials' or 'authorization_code-auto'.
 
             public: // Constructor(s) / Destructor
 
