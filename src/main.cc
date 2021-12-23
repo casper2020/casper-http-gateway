@@ -24,7 +24,8 @@
 #include "version.h"
 
 #include "casper/job/handler.h"
-#include "casper/proxy/worker/oauth2-client.h"
+#include "casper/proxy/worker/http/client.h"
+#include "casper/proxy/worker/http/oauth2/client.h"
 
 /**
  * @brief Main.
@@ -66,10 +67,15 @@ int main(int argc, char** argv)
         /* a_factories */
         {
             {
-                ::casper::proxy::worker::OAuth2Client::sk_tube_, [] (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config) -> cc::easy::job::Job* {
-                    return new ::casper::proxy::worker::OAuth2Client(a_loggable_data, a_config);
+                ::casper::proxy::worker::http::Client::sk_tube_, [] (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config) -> cc::easy::job::Job* {
+                    return new ::casper::proxy::worker::http::Client(a_loggable_data, a_config);
                 }
             },
+            {
+                ::casper::proxy::worker::http::oauth2::Client::sk_tube_, [] (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config) -> cc::easy::job::Job* {
+                    return new ::casper::proxy::worker::http::oauth2::Client(a_loggable_data, a_config);
+                }
+            }
         },
         /* a_polling_timeout */ 20.0 /* milliseconds */
     );

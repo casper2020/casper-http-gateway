@@ -19,7 +19,7 @@
  * along with casper-proxy-worker. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "casper/proxy/worker/deferred.h"
+#include "casper/proxy/worker/http/oauth2/deferred.h"
 
 #include "cc/easy/job/types.h"
 
@@ -32,9 +32,9 @@ extern std::string edd (const std::string&);
  * @param a_tracking      Request tracking info.
  * @param a_loggable_data
  */
-casper::proxy::worker::Deferred::Deferred (const casper::job::deferrable::Tracking& a_tracking, const ev::Loggable::Data& a_loggable_data
-                                           CC_IF_DEBUG_CONSTRUCT_APPEND_VAR(const cc::debug::Threading::ThreadID, a_thread_id))
-: ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>(casper::proxy::worker::MakeID(a_tracking), a_tracking CC_IF_DEBUG_CONSTRUCT_APPEND_PARAM_VALUE(a_thread_id)),
+casper::proxy::worker::http::oauth2::Deferred::Deferred (const casper::job::deferrable::Tracking& a_tracking, const ev::Loggable::Data& a_loggable_data
+                                                         CC_IF_DEBUG_CONSTRUCT_APPEND_VAR(const cc::debug::Threading::ThreadID, a_thread_id))
+: ::casper::job::deferrable::Deferred<casper::proxy::worker::http::oauth2::Arguments>(MakeID(a_tracking), a_tracking CC_IF_DEBUG_CONSTRUCT_APPEND_PARAM_VALUE(a_thread_id)),
     loggable_data_(a_loggable_data),
     http_(nullptr),
     http_oauth2_(nullptr)
@@ -47,7 +47,7 @@ casper::proxy::worker::Deferred::Deferred (const casper::job::deferrable::Tracki
 /**
  * @brief Destructor.
  */
-casper::proxy::worker::Deferred::~Deferred()
+casper::proxy::worker::http::oauth2::Deferred::~Deferred()
 {
     if ( nullptr != http_ ) {
         delete http_;
@@ -63,7 +63,7 @@ casper::proxy::worker::Deferred::~Deferred()
  * @param a_args      This deferred request arguments.
  * @param a_callback  Functions to call by this object when needed.
  */
-void casper::proxy::worker::Deferred::Run (const casper::proxy::worker::Arguments& a_args, Callbacks a_callbacks)
+void casper::proxy::worker::http::oauth2::Deferred::Run (const casper::proxy::worker::http::oauth2::Arguments& a_args, Callbacks a_callbacks)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_ASSERT(nullptr == http_ && nullptr == http_oauth2_ && nullptr == arguments_);
@@ -78,32 +78,33 @@ void casper::proxy::worker::Deferred::Run (const casper::proxy::worker::Argument
         }
     }
     // ... keep track of arguments and callbacks ...
-    arguments_ = new casper::proxy::worker::Arguments(a_args);
-    callbacks_ = a_callbacks;
+    arguments_ = new casper::proxy::worker::http::oauth2::Arguments(a_args);
+    // ... bind callbacks ...
+    Bind(a_callbacks);
     // ... prepare HTTP client ...
     http_oauth2_ = new ::cc::easy::OAuth2HTTPClient(loggable_data_, arguments_->parameters().config_,
                                                     arguments_->parameters().tokens([this](::cc::easy::OAuth2HTTPClient::Tokens& a_tokens){
-                                                        a_tokens.on_change_ = std::bind(&casper::proxy::worker::Deferred::OnOAuth2TokensChanged, this);
+                                                        a_tokens.on_change_ = std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnOAuth2TokensChanged, this);
                                                     })
     );
     if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
         http_oauth2_->SetcURLedCallbacks({
-            /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientRequest , this, std::placeholders::_1, std::placeholders::_2),
-            /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientValue   , this, std::placeholders::_1, std::placeholders::_2)
+            /* log_request_  */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientRequest , this, std::placeholders::_1, std::placeholders::_2),
+            /* log_response_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientValue   , this, std::placeholders::_1, std::placeholders::_2)
             CC_IF_DEBUG(
                 ,
-                /* progress_     */ nullptr, // std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientProgress, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
-                /* debug_        */ nullptr, // std::bind(&casper::proxy::worker::Deferred::LogHTTPOAuth2ClientDebug   , this, std::placeholders::_1, std::placeholders::_2)
+                /* progress_     */ nullptr, // std::bind(&casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientProgress, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                /* debug_        */ nullptr, // std::bind(&casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientDebug   , this, std::placeholders::_1, std::placeholders::_2)
             )
         }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
     }
     // ... perform request ...
     switch(a_args.parameters().request_type()) {
-        case casper::proxy::worker::Parameters::RequestType::OAuth2Grant:
+        case casper::proxy::worker::http::oauth2::Parameters::RequestType::OAuth2Grant:
             // ... perform ...
             ScheduleAuthorization(true, nullptr, 0);
             break;
-        case casper::proxy::worker::Parameters::RequestType::HTTP:
+        case casper::proxy::worker::http::oauth2::Parameters::RequestType::HTTP:
             // ... first load tokens from DB ...
             ScheduleLoadTokens(true, nullptr, 0);
             break;
@@ -119,7 +120,7 @@ void casper::proxy::worker::Deferred::Run (const casper::proxy::worker::Argument
  * @param a_origin Caller function name.
  * @param a_delay  Delay in ms.
  */
-void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track */, const char* const a_origin, const size_t /* a_delay */)
+void casper::proxy::worker::http::oauth2::Deferred::ScheduleLoadTokens (const bool /* a_track */, const char* const a_origin, const size_t /* a_delay */)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
@@ -129,12 +130,12 @@ void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track 
     current_       = Deferred::Operation::LoadTokens;
     operation_str_ = "db/" + std::string(nullptr != a_origin ? a_origin : __FUNCTION__);
     // ... log ...
-    callbacks_.on_log_deferred_step_(this, operation_str_ + "...");
+    OnLogDeferredStep(this, operation_str_ + "...");
     // ... track it now ...
     Track();
     // ... load tokens and then perform request, or just perform request?
     switch (arguments_->parameters().type_) {
-        case proxy::worker::Config::Type::Storage:
+        case proxy::worker::http::oauth2::Config::Type::Storage:
         {
             // ... allow oauth2 restart?
             allow_oauth2_restart_ = false;
@@ -143,29 +144,29 @@ void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track 
             // ... but first, perform obtain tokens ...
             (void)arguments_->parameters().storage(::ev::curl::Request::HTTPRequestType::GET);
             // ... prepare HTTP client ...
-            http_ = new ::cc::easy::HTTPClient(loggable_data_);
+            http_ = new ::cc::easy::HTTPClient(loggable_data_, tracking_.ua_.c_str());
             if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
                 http_->SetcURLedCallbacks({
-                    /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
-                    /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
+                    /* log_request_  */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
+                    /* log_response_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
                 }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
             }
             // ... HTTP requests must be performed @ MAIN thread ...
-            callbacks_.on_main_thread_([this]() {
+            CallOnMainThread([this]() {
                 // ... first load tokens from db ...
                 const auto& storage = arguments_->parameters().storage();
                 http_->GET(storage.url_, storage.headers_,
                            ::cc::easy::HTTPClient::RawCallbacks({
-                              /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
-                              /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
-                              /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
+                              /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
+                              /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
+                              /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
                            }),
                            &storage.timeouts_
                 );
             });
         }
             break;
-        case proxy::worker::Config::Type::Storageless:
+        case proxy::worker::http::oauth2::Config::Type::Storageless:
         {
             // ... since we're storageless, we're m2m ....
             switch(arguments().parameters().config_.oauth2_.grant_.type_) {
@@ -205,7 +206,7 @@ void casper::proxy::worker::Deferred::ScheduleLoadTokens (const bool /* a_track 
  * @param a_origin Caller function name.
  * @param a_delay  Delay in ms.
  */
-void casper::proxy::worker::Deferred::ScheduleSaveTokens (const bool /* a_track */, const char* const a_origin, const size_t /* a_delay */)
+void casper::proxy::worker::http::oauth2::Deferred::ScheduleSaveTokens (const bool /* a_track */, const char* const a_origin, const size_t /* a_delay */)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
@@ -215,18 +216,18 @@ void casper::proxy::worker::Deferred::ScheduleSaveTokens (const bool /* a_track 
     current_       = Deferred::Operation::SaveTokens;
     operation_str_ = "db/" + std::string(nullptr != a_origin ? a_origin : __FUNCTION__);
     // ... log ...
-    callbacks_.on_log_deferred_step_(this, operation_str_ + "...");
+    OnLogDeferredStep(this, operation_str_ + "...");
     // ... save tokens ...
     switch (arguments_->parameters().type_) {
-        case proxy::worker::Config::Type::Storage:
+        case proxy::worker::http::oauth2::Config::Type::Storage:
         {
             // ... prepare HTTP client ...
             if ( nullptr == http_ ) {
-                http_ = new ::cc::easy::HTTPClient(loggable_data_);
+                http_ = new ::cc::easy::HTTPClient(loggable_data_, tracking_.ua_.c_str());
                 if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
                     http_->SetcURLedCallbacks({
-                        /* log_request_  */ std::bind(&casper::proxy::worker::Deferred::LogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
-                        /* log_response_ */ std::bind(&casper::proxy::worker::Deferred::LogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
+                        /* log_request_  */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
+                        /* log_response_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
                     }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
                 }
             }
@@ -241,21 +242,21 @@ void casper::proxy::worker::Deferred::ScheduleSaveTokens (const bool /* a_track 
             body["scope"]         = tokens.scope_;
             (void)arguments_->parameters().storage(::ev::curl::Request::HTTPRequestType::POST, json.Write(body));
             // ... HTTP requests must be performed @ MAIN thread ...
-            callbacks_.on_main_thread_([this]() {
+            CallOnMainThread([this]() {
                 const auto& storage = arguments_->parameters().storage();
                 // ... save tokens from db ...
                 http_->POST(storage.url_, storage.headers_, storage.body_,
                             ::cc::easy::HTTPClient::RawCallbacks({
-                                    /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
-                                    /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
-                                    /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
+                                    /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
+                                    /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
+                                    /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
                             }),
                             &storage.timeouts_
                 );
             });
         }
             break;
-        case proxy::worker::Config::Type::Storageless:
+        case proxy::worker::http::oauth2::Config::Type::Storageless:
             // ... nop - tokens already stored in memory ..
             break;
         default:
@@ -272,7 +273,7 @@ void casper::proxy::worker::Deferred::ScheduleSaveTokens (const bool /* a_track 
  * @param a_origin Caller function name.
  * @param a_delay  Delay in ms.
  */
-void casper::proxy::worker::Deferred::ScheduleAuthorization (const bool a_track, const char* const a_origin, const size_t a_delay)
+void casper::proxy::worker::http::oauth2::Deferred::ScheduleAuthorization (const bool a_track, const char* const a_origin, const size_t a_delay)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
@@ -295,15 +296,15 @@ void casper::proxy::worker::Deferred::ScheduleAuthorization (const bool a_track,
             throw ::cc::NotImplemented("Grant Type '%s' not implemented!", grant.name_.c_str());
     }
     // ... HTTP requests must be performed @ MAIN thread ...
-    callbacks_.on_main_thread_([this, grant]() {
+    CallOnMainThread([this, grant]() {
         //
         switch(grant.type_) {
             case ::cc::easy::OAuth2HTTPClient::GrantType::AuthorizationCode:
                 if ( true == grant.auto_ ) {
                     http_oauth2_->AuthorizationCodeGrant({
-                        /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
-                         /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError   , this, std::placeholders::_1),
-                        /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
+                        /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
+                         /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError   , this, std::placeholders::_1),
+                        /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
                     });
                 } else {
                     const auto& auth_code = arguments().parameters().auth_code_request();
@@ -311,18 +312,18 @@ void casper::proxy::worker::Deferred::ScheduleAuthorization (const bool a_track,
                                                          auth_code.scope_,
                                                          auth_code.state_,
                                                          {
-                                                            /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
-                                                            /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
-                                                            /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
+                                                            /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
+                                                            /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
+                                                            /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
                                                           },
-                                                          /* a_rfc_6749 */ grant.rfc_6749_strict_);
+                                                          /* a_rfc_6749 */ grant.rfc_6749_strict_, /* a_formpost */ grant.formpost_);
                 }
                 break;
             case ::cc::easy::OAuth2HTTPClient::GrantType::ClientCredentials:
                 http_oauth2_->ClientCredentialsGrant({
-                    /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
-                    /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
-                    /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
+                    /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
+                    /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
+                    /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
                 }, /* a_rfc_6749 */ grant.rfc_6749_strict_);
                 break;
             default:
@@ -338,7 +339,7 @@ void casper::proxy::worker::Deferred::ScheduleAuthorization (const bool a_track,
  * @param a_origin Caller function name.
  * @param a_delay  Delay in ms.
  */
-void casper::proxy::worker::Deferred::SchedulePerformRequest (const bool a_track, const char* const a_origin, const size_t a_delay)
+void casper::proxy::worker::http::oauth2::Deferred::SchedulePerformRequest (const bool a_track, const char* const a_origin, const size_t a_delay)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_ASSERT(nullptr != arguments_);
@@ -347,21 +348,21 @@ void casper::proxy::worker::Deferred::SchedulePerformRequest (const bool a_track
     current_       = Deferred::Operation::PerformRequest;
     operation_str_ = "http/" + std::string(nullptr != a_origin ? a_origin : __FUNCTION__);
     // ... log ...
-    callbacks_.on_log_deferred_step_(this, operation_str_ + "...");
+    OnLogDeferredStep(this, operation_str_ + "...");
     // ... track it now?
     if ( true == a_track ) {
         Track();
     }
     CC_DEBUG_ASSERT(true == Tracked());
     // ... HTTP requests must be performed @ MAIN thread ...
-    callbacks_.on_main_thread_([this]() {
+    CallOnMainThread([this]() {
         //
         const auto& request = arguments_->parameters().http_request();
         // ... async perform HTTP request ...
         const ::cc::easy::HTTPClient::RawCallbacks callbacks = {
-            /* on_success_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
-            /* on_error_   */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
-            /* on_failure_ */ std::bind(&casper::proxy::worker::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
+            /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
+            /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
+            /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
         };
         switch(request.method_) {
             case ::ev::curl::Request::HTTPRequestType::HEAD:
@@ -393,7 +394,7 @@ void casper::proxy::worker::Deferred::SchedulePerformRequest (const bool a_track
  *
  * @param a_tag Callback tag.
  */
-void casper::proxy::worker::Deferred::Finalize (const std::string& a_tag)
+void casper::proxy::worker::http::oauth2::Deferred::Finalize (const std::string& a_tag)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -402,11 +403,11 @@ void casper::proxy::worker::Deferred::Finalize (const std::string& a_tag)
         // ... if request failed, and if we're tracing and did not log HTTP calls, should we do it now?
         if ( CC_EASY_HTTP_OK != response_.code() && HTTPOptions::Trace == ( HTTPOptions::Trace & http_options_ ) && not ( HTTPOptions::Log == ( HTTPOptions::Log & http_options_ ) ) ) {
             for ( const auto& trace : http_trace_ ) {
-                callbacks_.on_log_deferred_(this, CC_JOB_LOG_LEVEL_VBS ,CC_JOB_LOG_STEP_HTTP, trace.data_);
+                OnLogDeferred(this, CC_JOB_LOG_LEVEL_VBS ,CC_JOB_LOG_STEP_HTTP, trace.data_);
             }
         }
         // ... notify ...
-        callbacks_.on_completed_(this);
+        OnCompleted(this);
         // ... done ...
         Untrack();
     }, /* a_daredevil */ true);
@@ -417,12 +418,12 @@ void casper::proxy::worker::Deferred::Finalize (const std::string& a_tag)
 /**
  * @brief Called by HTTP client to report when OAuth2 tokens changed.
  */
-void casper::proxy::worker::Deferred::OnOAuth2TokensChanged ()
+void casper::proxy::worker::http::oauth2::Deferred::OnOAuth2TokensChanged ()
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
     // ... push next operation to run after this one is successfully completed ...
-    if ( proxy::worker::Config::Type::Storage == arguments_->parameters().type_ ) {
+    if ( proxy::worker::http::oauth2::Config::Type::Storage == arguments_->parameters().type_ ) {
         operations_.push_back(Deferred::Operation::SaveTokens);
     }
 }
@@ -432,7 +433,7 @@ void casper::proxy::worker::Deferred::OnOAuth2TokensChanged ()
  *
  * @param a_value RAW value.
  */
-void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::HTTPClient::RawValue& a_value)
+void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted (const ::cc::easy::HTTPClient::RawValue& a_value)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -504,7 +505,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
                     });
                 }
                 // ... next, save tokens?
-                if ( proxy::worker::Config::Type::Storage == arguments_->parameters().type_ && CC_EASY_HTTP_OK == response_.code() ) {
+                if ( proxy::worker::http::oauth2::Config::Type::Storage == arguments_->parameters().type_ && CC_EASY_HTTP_OK == response_.code() ) {
                     operations_.insert(operations_.begin(), Deferred::Operation::SaveTokens);
                 }
             }
@@ -543,7 +544,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
         }
     }
     // ... failed to renew tokens exception ...
-    if ( proxy::worker::Config::Type::Storage == arguments_->parameters().type_ ) {
+    if ( proxy::worker::http::oauth2::Config::Type::Storage == arguments_->parameters().type_ ) {
         if ( false == acceptable && current_ != Deferred::Operation::SaveTokens ) {
             // ... if there's a pending operation to 'store' tokens ...
             const auto it = std::find_if(operations_.begin(), operations_.end(), [](const Deferred::Operation& a_operation) {
@@ -622,7 +623,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestCompleted (const ::cc::easy::
  *
  * @param a_error Error ocurred.
  */
-void casper::proxy::worker::Deferred::OnHTTPRequestError (const ::cc::easy::HTTPClient::RawError& a_value)
+void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError (const ::cc::easy::HTTPClient::RawError& a_value)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -638,7 +639,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestError (const ::cc::easy::HTTP
             break;
     }
     // ... finalize ...
-    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + operation_str_ + "-error-");
+    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_value) + '-' + operation_str_ + "-error-");
 }
 
 /**
@@ -646,14 +647,14 @@ void casper::proxy::worker::Deferred::OnHTTPRequestError (const ::cc::easy::HTTP
  *
  * @param a_exception Exception ocurred.
  */
-void casper::proxy::worker::Deferred::OnHTTPRequestFailure (const ::cc::Exception& a_exception)
+void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure (const ::cc::Exception& a_exception)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
     // ... set response ...
     response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, a_exception);
     // ... finalize ...
-    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + operation_str_ + "-failure-");
+    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_exception) + '-' + operation_str_ + "-failure-");
 }
 
 // MARK: - HTTP Client Callbacks
@@ -664,7 +665,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestFailure (const ::cc::Exceptio
  * @param a_request Request that will be running.
  * @param a_data    cURL(ed) style command ( for log proposes only ).
  */
-void casper::proxy::worker::Deferred::LogHTTPRequest (const ::ev::curl::Request& a_request, const std::string& a_data)
+void casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPRequest (const ::ev::curl::Request& a_request, const std::string& a_data)
 {
     OnHTTPRequestWillRunLogIt(a_request, a_data, ( ( http_options_ &~ HTTPOptions::OAuth2 ) | HTTPOptions::NonOAuth2 ));
 }
@@ -675,7 +676,7 @@ void casper::proxy::worker::Deferred::LogHTTPRequest (const ::ev::curl::Request&
  * @param a_value Post request execution, result data.
  * @param a_data    cURL(ed) style response data ( for log proposes only ).
  */
-void casper::proxy::worker::Deferred::LogHTTPValue (const ::ev::curl::Value& a_value, const std::string& a_data)
+void casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPValue (const ::ev::curl::Value& a_value, const std::string& a_data)
 {
     OnHTTPRequestSteppedLogIt(a_value, a_data, ( ( http_options_ &~ HTTPOptions::OAuth2 ) | HTTPOptions::NonOAuth2 ));
 }
@@ -688,7 +689,7 @@ void casper::proxy::worker::Deferred::LogHTTPValue (const ::ev::curl::Value& a_v
  * @param a_request Request that will be running.
  * @param a_data    cURL(ed) style command ( for log proposes only ).
  */
-void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientRequest (const ::ev::curl::Request& a_request, const std::string& a_data)
+void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientRequest (const ::ev::curl::Request& a_request, const std::string& a_data)
 {
     OnHTTPRequestWillRunLogIt(a_request, a_data, ( ( http_options_ &~ HTTPOptions::NonOAuth2 ) | HTTPOptions::OAuth2 ));
 }
@@ -699,7 +700,7 @@ void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientRequest (const ::ev::cu
  * @param a_value Post request execution, result data.
  * @param a_data  cURL(ed) style response data ( for log proposes only ).
  */
-void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientValue (const ::ev::curl::Value& a_value, const std::string& a_data)
+void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientValue (const ::ev::curl::Value& a_value, const std::string& a_data)
 {
     OnHTTPRequestSteppedLogIt(a_value, a_data, ( ( http_options_ &~ HTTPOptions::NonOAuth2 ) | HTTPOptions::OAuth2 ));
 }
@@ -712,7 +713,7 @@ CC_IF_DEBUG(
  * @param a_request Request that is being executed.
  * @param a_data    Data to log.
  */
-void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientDebug (const ::ev::curl::Request& a_request, const std::string& a_data)
+void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientDebug (const ::ev::curl::Request& a_request, const std::string& a_data)
 {
     // ... just log it ...
     CC_DEBUG_LOG_MSG(CC_QUALIFIED_CLASS_NAME(this).c_str(),  "[%p] %s\n", &a_request, a_data.c_str());
@@ -725,7 +726,7 @@ void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientDebug (const ::ev::curl
  * @param a_percentage 0..100
  * @param a_upload     True if it's related to data tx, false for data rx.
  */
-void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientProgress (const ::ev::curl::Request& a_request, const uint8_t a_percentage, const bool a_upload)
+void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientProgress (const ::ev::curl::Request& a_request, const uint8_t a_percentage, const bool a_upload)
 {
     // ... just log it ...
     CC_DEBUG_LOG_MSG(CC_QUALIFIED_CLASS_NAME(this).c_str(), "[%p] %8s: " UINT8_FMT "%% completed\n", &a_request, ( a_upload ? "UPLOAD" : "DOWNLOAD" ), a_percentage);
@@ -740,7 +741,7 @@ void casper::proxy::worker::Deferred::LogHTTPOAuth2ClientProgress (const ::ev::c
  * @param a_data    cURL(ed) style command ( for log proposes only ).
  * @param a_options Adjusted options for this request, for more info See \link proxy::worker::Deferred::HTTPOptions \link.
  */
-void casper::proxy::worker::Deferred::OnHTTPRequestWillRunLogIt (const ::ev::curl::Request& a_request, const std::string& a_data, const proxy::worker::Deferred::HTTPOptions a_options)
+void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestWillRunLogIt (const ::ev::curl::Request& a_request, const std::string& a_data, const proxy::worker::http::oauth2::Deferred::HTTPOptions a_options)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -759,7 +760,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestWillRunLogIt (const ::ev::cur
         CallOnLooperThread(tag, [this, a_data, a_options] (const std::string&) {
             // ... log?
             if ( HTTPOptions::Log == ( HTTPOptions::Log & a_options ) ) {
-                callbacks_.on_log_deferred_(this, CC_JOB_LOG_LEVEL_VBS ,CC_JOB_LOG_STEP_HTTP, a_data);
+                OnLogDeferred(this, CC_JOB_LOG_LEVEL_VBS ,CC_JOB_LOG_STEP_HTTP, a_data);
             } else { // assuming trace
                 http_trace_.push_back({
                     /* code_ */ 0,
@@ -777,7 +778,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestWillRunLogIt (const ::ev::cur
  * @param a_data    cURL(ed) style response data ( for log proposes only ).
  * @param a_options Adjusted options for this value, for more info See \link proxy::worker::Deferred::HTTPOptions \link.
  */
-void casper::proxy::worker::Deferred::OnHTTPRequestSteppedLogIt (const ::ev::curl::Value& a_value, const std::string& a_data, const proxy::worker::Deferred::HTTPOptions a_options)
+void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestSteppedLogIt (const ::ev::curl::Value& a_value, const std::string& a_data, const proxy::worker::http::oauth2::Deferred::HTTPOptions a_options)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -797,7 +798,7 @@ void casper::proxy::worker::Deferred::OnHTTPRequestSteppedLogIt (const ::ev::cur
         CallOnLooperThread(tag, [this, a_data, a_options, code] (const std::string&) {
             // ... log?
             if ( HTTPOptions::Log == ( HTTPOptions::Log & a_options ) ) {
-                callbacks_.on_log_deferred_(this, CC_JOB_LOG_LEVEL_VBS, CC_JOB_LOG_STEP_HTTP, a_data);
+                OnLogDeferred(this, CC_JOB_LOG_LEVEL_VBS, CC_JOB_LOG_STEP_HTTP, a_data);
             } else { // assuming trace
                 http_trace_.push_back({
                     /* code_ */ code,

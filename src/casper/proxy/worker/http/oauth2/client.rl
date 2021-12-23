@@ -1,5 +1,5 @@
 /**
- * @file oauth2-client.h
+ * @file client.rl
  *
  * Copyright (c) 2011-2021 Cloudware S.A. All rights reserved.
  *
@@ -19,9 +19,11 @@
  * along with casper-proxy-worker.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "casper/proxy/worker/oauth2-client.h"
+#include "casper/proxy/worker/http/oauth2/client.h"
 
-#include "casper/proxy/worker/dispatcher.h"
+#include "casper/proxy/worker/http/oauth2/dispatcher.h"
+
+#include "version.h"
 
 #include "cc/ragel.h"
 
@@ -29,8 +31,11 @@
 
 #include "cc/v8/exception.h"
 
-const char* const casper::proxy::worker::OAuth2Client::sk_tube_      = "oauth2-http-client";
-const Json::Value casper::proxy::worker::OAuth2Client::sk_behaviour_ = "default";
+const char* const casper::proxy::worker::http::oauth2::Client::sk_tube_      = "oauth2-http-client";
+const Json::Value casper::proxy::worker::http::oauth2::Client::sk_behaviour_ = "default";
+const casper::proxy::worker::http::oauth2::Client::RejectedHeadersSet casper::proxy::worker::http::oauth2::Client::sk_rejected_headers_ = {
+    "Authorization", "User-Agent", "X-CASPER-ROLE-MASK"
+};
 
 /**
  * @brief Default constructor.
@@ -38,8 +43,8 @@ const Json::Value casper::proxy::worker::OAuth2Client::sk_behaviour_ = "default"
  * param a_loggable_data
  * param a_config
  */
-casper::proxy::worker::OAuth2Client::OAuth2Client (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config)
-    : ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>("OHC", sk_tube_, a_loggable_data, a_config, /* a_sequentiable */ false)
+casper::proxy::worker::http::oauth2::Client::Client (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config)
+    : ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>("OHC", sk_tube_, a_loggable_data, a_config, /* a_sequentiable */ false)
 {
     script_ = nullptr;
 }
@@ -47,7 +52,7 @@ casper::proxy::worker::OAuth2Client::OAuth2Client (const ev::Loggable::Data& a_l
 /**
  * @brief Destructor
  */
-casper::proxy::worker::OAuth2Client::~OAuth2Client ()
+casper::proxy::worker::http::oauth2::Client::~Client ()
 {
     for ( const auto& it : providers_ ) {
         delete it.second;
@@ -61,16 +66,16 @@ casper::proxy::worker::OAuth2Client::~OAuth2Client ()
 /**
  * @brief One-shot setup.
  */
-void casper::proxy::worker::OAuth2Client::InnerSetup ()
+void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
 {
     // ... sanity check ...
     CC_DEBUG_ASSERT(0 == providers_.size());
     //
     const ::cc::easy::JSON<::cc::InternalServerError> json;
     // memory managed by base class
-    d_.dispatcher_                    = new casper::proxy::worker::Dispatcher(loggable_data_ CC_IF_DEBUG_CONSTRUCT_APPEND_PARAM_VALUE(thread_id_));
-    d_.on_deferred_request_completed_ = std::bind(&casper::proxy::worker::OAuth2Client::OnDeferredRequestCompleted, this, std::placeholders::_1, std::placeholders::_2);
-    d_.on_deferred_request_failed_    = std::bind(&casper::proxy::worker::OAuth2Client::OnDeferredRequestFailed   , this, std::placeholders::_1, std::placeholders::_2);
+    d_.dispatcher_                    = new casper::proxy::worker::http::oauth2::Dispatcher(loggable_data_, CASPER_PROXY_WORKER_NAME "/" CASPER_PROXY_WORKER_VERSION CC_IF_DEBUG_CONSTRUCT_APPEND_PARAM_VALUE(thread_id_));
+    d_.on_deferred_request_completed_ = std::bind(&casper::proxy::worker::http::oauth2::Client::OnDeferredRequestCompleted, this, std::placeholders::_1, std::placeholders::_2);
+    d_.on_deferred_request_failed_    = std::bind(&casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed   , this, std::placeholders::_1, std::placeholders::_2);
     // ...
     const auto object2headers = [&json] (const Json::Value& a_object) -> std::map<std::string, std::vector<std::string>> {
         std::map<std::string, std::vector<std::string>> h;
@@ -98,6 +103,7 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                       /* name_            */ grant_type_ref.asString(),
                       /* type_            */ TranslatedGrantType(grant_type_ref.asString()),
                       /* rfc_6749_strict_ */ json.Get(grant_type_obj, "rfc6749", Json::ValueType::booleanValue, nullptr).asBool(),
+                      /* formpost_        */ json.Get(grant_type_obj, "formpost", Json::ValueType::booleanValue, nullptr).asBool(),
                       /* auto_            */ json.Get(grant_type_obj, "auto", Json::ValueType::booleanValue, &k_auto).asBool()
                     },
                     /* urls_ */ {
@@ -113,12 +119,12 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                 }
             });
             // ...
-            proxy::worker::Config::Headers headers;
+            proxy::worker::http::oauth2::Config::Headers headers;
             const Json::Value& headers_ref = json.Get(provider_ref, "headers", Json::ValueType::objectValue, &Json::Value::null);
             if ( false == headers_ref.isNull() ) {
                 headers = object2headers(headers_ref);
             }
-            proxy::worker::Config::HeadersPerMethod headers_per_method;
+            proxy::worker::http::oauth2::Config::HeadersPerMethod headers_per_method;
             {
                 const Json::Value& headers_per_method_ref = json.Get(provider_ref, "headers_per_method", Json::ValueType::objectValue, &Json::Value::null);
                 if ( false == headers_per_method_ref.isNull() ) {
@@ -128,7 +134,7 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                 }
             }
             // ...
-            proxy::worker::Config* p_config = nullptr;
+            proxy::worker::http::oauth2::Config* p_config = nullptr;
             try {
                 // ... fix paths ...
                 Json::Value signing = json.Get(provider_ref, "signing", Json::ValueType::objectValue, &Json::Value::null);
@@ -152,13 +158,13 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                         timeouts["connection"] = static_cast<Json::Int>(sk_storage_connection_timeout_);
                         timeouts["operation"]  = static_cast<Json::Int>(sk_storage_operation_timeout_);
                     }
-                    p_config = new proxy::worker::Config( {
+                    p_config = new proxy::worker::http::oauth2::Config( {
                         /* http_               */ config,
                         /* headers             */ headers,
                         /* headers_per_method_ */ headers_per_method,
                         /* signing_            */ signing,
                         /* storage_            */
-                        proxy::worker::Config::Storage({
+                        proxy::worker::http::oauth2::Config::Storage({
                             /* endpoints_ */ {
                                 /* tokens_  */ json.Get(endpoints_ref, "tokens", Json::ValueType::stringValue, nullptr).asString()
                             },
@@ -171,13 +177,13 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
                         })
                     });
                 } else if ( 0 == strcasecmp(type_ref.asCString(), "storageless") ) {
-                    p_config = new proxy::worker::Config( {
+                    p_config = new proxy::worker::http::oauth2::Config( {
                         /* http_               */ config,
                         /* headers             */ headers,
                         /* headers_per_method_ */ headers_per_method,
                         /* signing_            */ signing,
                         /* storage_            */
-                        proxy::worker::Config::Storageless({
+                        proxy::worker::http::oauth2::Config::Storageless({
                             /* headers_ */ {},
                         })
                     });
@@ -212,7 +218,7 @@ void casper::proxy::worker::OAuth2Client::InnerSetup ()
  *
  * @param o_response JSON object.
  */
-void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const Json::Value& a_payload, cc::easy::job::Job::Response& o_response)
+void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id, const Json::Value& a_payload, cc::easy::job::Job::Response& o_response)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
     // ... assuming BAD REQUEST ...
@@ -228,10 +234,8 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
     //    "what": <string> : grant or http
     //    "grant": <object> or "http": <object>
     // }
-    bool               broker  = false;
-    const Json::Value& payload = Payload(a_payload, &broker);
-    
-    
+    bool               broker    = false;
+    const Json::Value& payload   = Payload(a_payload, &broker);
     const Json::Value& behaviour = json.Get(payload, "behaviour", Json::ValueType::stringValue, &sk_behaviour_);
     const Json::Value& provider  = json.Get(payload, "provider" , Json::ValueType::stringValue, nullptr);
     const auto& provider_it = providers_.find(provider.asString());
@@ -248,17 +252,18 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
         /* rjnr_ */ RJNR(),
         /* rjid_ */ RJID(),
         /* rcid_ */ RCID(),
-        /* dpi_  */ "CPW",
+        /* dpid_ */ "CPW",
+        /* ua_   */ dynamic_cast<casper::proxy::worker::http::oauth2::Dispatcher*>(d_.dispatcher_)->user_agent(),
     };
 
     // ... prepare arguments / parameters ...
-    casper::proxy::worker::Arguments arguments = casper::proxy::worker::Arguments(
+    casper::proxy::worker::http::oauth2::Arguments arguments = casper::proxy::worker::http::oauth2::Arguments(
         {
             /* a_id        */ provider_it->first,
             /* a_type      */ provider_it->second->type_,
             /* a_config    */ provider_it->second->http_,
             /* a_data      */ what_obj,
-            /* a_primitive */ ( true == broker && 0 == strcasecmp("gateway",  behaviour.asCString()) ),
+            /* a_primitive */ ( true == broker && 0 == strcasecmp("gateway", behaviour.asCString()) ),
             /* a_log_level */ config_.log_level()
         }
     );
@@ -269,7 +274,7 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
     //
     // COMMON
     //
-    const auto set_timeouts = [&json] (const Json::Value& a_timeouts, proxy::worker::Config::Timeouts& o_timeouts) {
+    const auto set_timeouts = [&json] (const Json::Value& a_timeouts, proxy::worker::http::oauth2::Config::Timeouts& o_timeouts) {
         // ... timeouts ...
         if ( false == a_timeouts.isNull() ) {
             const Json::Value connection_ref = json.Get(a_timeouts, "connection", Json::ValueType::uintValue, &Json::Value::null);
@@ -287,12 +292,12 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
     //
     const auto set_storage = [this, &tracking, &arguments, &provider_cfg, &v8_data] (::cc::easy::OAuth2HTTPClient::Tokens* o_tokens) {
         // ... storageless?
-        if ( proxy::worker::Config::Type::Storageless == arguments.parameters().type_ ) {
+        if ( proxy::worker::http::oauth2::Config::Type::Storageless == arguments.parameters().type_ ) {
             // ... copy latest tokens available?..
             if ( nullptr != o_tokens ) {
                 (*o_tokens) = provider_cfg.storageless().tokens_;
             }
-        } else if ( proxy::worker::Config::Type::Storage == arguments.parameters().type_ ) {
+        } else if ( proxy::worker::http::oauth2::Config::Type::Storage == arguments.parameters().type_ ) {
             // ... prepare load / save tokens ...
             const auto& storage_cfg = provider_cfg.storage();
             // ... merge default values for 'arguments' ...
@@ -305,7 +310,7 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
                 }
             }
             // ... setup load/save tokens ...
-            arguments.parameters().storage([&, this](proxy::worker::Parameters::Storage& a_storage){
+            arguments.parameters().storage([&, this](proxy::worker::http::oauth2::Parameters::Storage& a_storage){
                 // ... copy config headers ...
                 a_storage.headers_ = storage_cfg.headers_;
                 // ... override and / or merge headers?
@@ -331,7 +336,7 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
     //
     if ( 0 == strcasecmp(what_ref.asCString(), "grant") ) {
         // ... set 'grant' operation arguments ...
-        (void)arguments.parameters().auth_code_request([this, &set_timeouts, &set_storage, &json, &tracking, &provider_cfg, &arguments, &v8_data](proxy::worker::Parameters::GrantAuthCodeRequest& auth_code) {
+        (void)arguments.parameters().auth_code_request([this, &set_timeouts, &set_storage, &json, &tracking, &provider_cfg, &arguments, &v8_data](proxy::worker::http::oauth2::Parameters::GrantAuthCodeRequest& auth_code) {
             // ... set timeouts ...
             set_timeouts(json.Get(arguments.parameters().data_, "timeouts", Json::ValueType::objectValue, &Json::Value::null), auth_code.timeouts_);
             // ... set storage ...
@@ -340,7 +345,7 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
             SetupGrantRequest(tracking, provider_cfg, arguments, auth_code, v8_data);
         });
     } else if ( 0 == strcasecmp(what_ref.asCString(), "http") ) {
-        (void)arguments.parameters().http_request([this, &set_timeouts, &set_storage, &json, tracking, &provider_cfg, &arguments, &v8_data](proxy::worker::Parameters::HTTPRequest& request) {
+        (void)arguments.parameters().http_request([this, &set_timeouts, &set_storage, &json, tracking, &provider_cfg, &arguments, &v8_data](proxy::worker::http::oauth2::Parameters::HTTPRequest& request) {
             // ... set timeouts ...
             set_timeouts(json.Get(arguments.parameters().data_, "timeouts", Json::ValueType::objectValue, &Json::Value::null), request.timeouts_);
             // ... set storage ...
@@ -352,11 +357,11 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
         throw ::cc::BadRequest("Don't know how to process '%s' - unknown operation!", what_ref.asCString());
     }
     // ... schedule deferred HTTP request ...
-    dynamic_cast<casper::proxy::worker::Dispatcher*>(d_.dispatcher_)->Push(tracking, arguments);
+    dynamic_cast<casper::proxy::worker::http::oauth2::Dispatcher*>(d_.dispatcher_)->Push(tracking, arguments);
     // ... publish progress ...
-    ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>::Publish(tracking.bjid_, tracking.rcid_, tracking.rjid_,
-                                                                                                  OAuth2ClientStep::DoingIt,
-                                                                                                  ::casper::job::deferrable::Base<Arguments, OAuth2ClientStep, OAuth2ClientStep::Done>::Status::InProgress,
+    ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>::Publish(tracking.bjid_, tracking.rcid_, tracking.rjid_,
+                                                                                                  ClientStep::DoingIt,
+                                                                                                  ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>::Status::InProgress,
                                                                                                   sk_i18n_in_progress_.key_, sk_i18n_in_progress_.arguments_
     );
     // ... accepted ...
@@ -377,14 +382,14 @@ void casper::proxy::worker::OAuth2Client::InnerRun (const int64_t& a_id, const J
  *         - if returns 0 don't finalize job now ( still work to do );
  *         - if 0, or if an exception is catched finalize job immediatley.
  */
-uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload)
+uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<casper::proxy::worker::http::oauth2::Arguments>* a_deferred, Json::Value& o_payload)
 {
     const auto& params = a_deferred->arguments().parameters();
     // ...
     {
         const auto& provider = providers_.find(params.id_);
-        if ( proxy::worker::Config::Type::Storageless == provider->second->type_ ) {
-            provider->second->storageless([&params](proxy::worker::Config::Storageless& a_storageless){
+        if ( proxy::worker::http::oauth2::Config::Type::Storageless == provider->second->type_ ) {
+            provider->second->storageless([&params](proxy::worker::http::oauth2::Config::Storageless& a_storageless){
                 a_storageless.tokens_ = params.tokens();
             });
         }
@@ -440,14 +445,14 @@ uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestCompleted (const 
  *         - if returns 0 don't finalize job now ( still work to do );
  *         - if 0, or if an exception is catched finalize job immediatley.
  */
-uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestFailed (const ::casper::job::deferrable::Deferred<casper::proxy::worker::Arguments>* a_deferred, Json::Value& o_payload)
+uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (const ::casper::job::deferrable::Deferred<casper::proxy::worker::http::oauth2::Arguments>* a_deferred, Json::Value& o_payload)
 {
     const auto& params = a_deferred->arguments().parameters();
     // ...
     {
         const auto& provider = providers_.find(params.id_);
-        if ( proxy::worker::Config::Type::Storageless == provider->second->type_ ) {
-            provider->second->storageless([&params](proxy::worker::Config::Storageless& a_storageless){
+        if ( proxy::worker::http::oauth2::Config::Type::Storageless == provider->second->type_ ) {
+            provider->second->storageless([&params](proxy::worker::http::oauth2::Config::Storageless& a_storageless){
                 a_storageless.tokens_ = params.tokens();
             });
         }
@@ -502,7 +507,7 @@ uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestFailed (const ::c
 
 // MARK:  - Method(s) / Function(s) - Schedule Helper(s)
 
-::cc::easy::OAuth2HTTPClient::GrantType casper::proxy::worker::OAuth2Client::TranslatedGrantType (const std::string& a_name)
+::cc::easy::OAuth2HTTPClient::GrantType casper::proxy::worker::http::oauth2::Client::TranslatedGrantType (const std::string& a_name)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
     ::cc::easy::OAuth2HTTPClient::GrantType  type = ::cc::easy::OAuth2HTTPClient::GrantType::NotSet;
@@ -542,8 +547,8 @@ uint16_t casper::proxy::worker::OAuth2Client::OnDeferredRequestFailed (const ::c
  * @param a_payload   Job payload.
  * @param a_arguments HTTP args.
  */
-void casper::proxy::worker::OAuth2Client::SetupGrantRequest (const ::casper::job::deferrable::Tracking& a_tracking,
-                                                             const casper::proxy::worker::Config& a_provider, casper::proxy::worker::Arguments& a_arguments, casper::proxy::worker::Parameters::GrantAuthCodeRequest& a_request,
+void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::casper::job::deferrable::Tracking& a_tracking,
+                                                             const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments, casper::proxy::worker::http::oauth2::Parameters::GrantAuthCodeRequest& a_request,
                                                              Json::Value& o_v8_data)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
@@ -581,8 +586,8 @@ void casper::proxy::worker::OAuth2Client::SetupGrantRequest (const ::casper::job
  * @param a_payload   Job payload.
  * @param a_arguments HTTP args.
  */
-void casper::proxy::worker::OAuth2Client::SetupHTTPRequest (const ::casper::job::deferrable::Tracking& a_tracking,
-                                                            const casper::proxy::worker::Config& a_provider, casper::proxy::worker::Arguments& a_arguments, casper::proxy::worker::Parameters::HTTPRequest& a_request,
+void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casper::job::deferrable::Tracking& a_tracking,
+                                                            const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments, casper::proxy::worker::http::oauth2::Parameters::HTTPRequest& a_request,
                                                             Json::Value& o_v8_data)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
@@ -643,6 +648,15 @@ void casper::proxy::worker::OAuth2Client::SetupHTTPRequest (const ::casper::job:
             o_v8_data["headers"][key] = header.asString();
             a_request.headers_[key] = { header.asString() };
         }
+        // ... reject OAuth2 header(s) ...
+        {
+            for ( const auto& header : sk_rejected_headers_ ) {
+                const auto it = std::find_if(a_request.headers_.begin(), a_request.headers_.end(), ev::curl::Object::cURLHeaderMapKeyComparator(header));
+                if ( a_request.headers_.end() != it ) {
+                    a_request.headers_.erase(it);
+                }
+            }
+        }
         // ... append or override headers ...
         for ( auto header : a_provider.headers_ ) {
             for ( auto& v : header.second ) {
@@ -670,6 +684,15 @@ void casper::proxy::worker::OAuth2Client::SetupHTTPRequest (const ::casper::job:
                 }
             }
         }
+        // ... double check, prevent injected OAuth2 header(s) ...
+        {
+            for ( const auto& header : sk_rejected_headers_ ) {
+                const auto it = std::find_if(a_request.headers_.begin(), a_request.headers_.end(), ev::curl::Object::cURLHeaderMapKeyComparator(header));
+                if ( a_request.headers_.end() != it ) {
+                    a_request.headers_.erase(it);
+                }
+            }
+        }
     }
     // ... URL V8(ing)?
     const std::string url = url_ref.asString();
@@ -690,7 +713,7 @@ void casper::proxy::worker::OAuth2Client::SetupHTTPRequest (const ::casper::job:
  * @param a_data       Data to load ( to be used during expression evaluation ).
  * @param o_value      Evaluation result.
  */
-void casper::proxy::worker::OAuth2Client::Evaluate (const uint64_t& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const
+void casper::proxy::worker::http::oauth2::Client::Evaluate (const uint64_t& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const
 {
     const std::set<std::string> k_evaluation_map_ = {
         "$.", "NowUTCISO8601(", "RSASignSHA256("
@@ -755,7 +778,7 @@ void casper::proxy::worker::OAuth2Client::Evaluate (const uint64_t& a_id, const 
  * @param a_data       Data to load ( to be used during expression evaluation ).
  * @param o_value      Evaluation result.
  */
-void casper::proxy::worker::OAuth2Client::Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const
+void casper::proxy::worker::http::oauth2::Client::Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
     

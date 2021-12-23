@@ -19,19 +19,21 @@
  * along with casper-proxy-worker. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "casper/proxy/worker/dispatcher.h"
-#include "casper/proxy/worker/deferred.h"
+#include "casper/proxy/worker/http/dispatcher.h"
+#include "casper/proxy/worker/http/deferred.h"
 
 /**
  * @brief Default constructor.
  *
  * @param a_loggable_data Logging data params.
+ * @param a_user_aget     HTTP User-Agent header value.
  * param a_thread_id      For debug proposes only
  */
-casper::proxy::worker::Dispatcher::Dispatcher (const ev::Loggable::Data& a_loggable_data
-                                               CC_IF_DEBUG_CONSTRUCT_APPEND_VAR(const cc::debug::Threading::ThreadID, a_thread_id))
-: ::casper::job::deferrable::Dispatcher<casper::proxy::worker::Arguments>(CC_IF_DEBUG(a_thread_id)),
-    loggable_data_(a_loggable_data)
+casper::proxy::worker::http::Dispatcher::Dispatcher (const ev::Loggable::Data& a_loggable_data,
+                                                             const std::string& a_user_agent
+                                                             CC_IF_DEBUG_CONSTRUCT_APPEND_VAR(const cc::debug::Threading::ThreadID, a_thread_id))
+: ::casper::job::deferrable::Dispatcher<casper::proxy::worker::http::Arguments>(CC_IF_DEBUG(a_thread_id)),
+    loggable_data_(a_loggable_data), user_agent_(a_user_agent)
 {
     /* empty */
 }
@@ -39,7 +41,7 @@ casper::proxy::worker::Dispatcher::Dispatcher (const ev::Loggable::Data& a_logga
 /**
  * @brief Destructor
  */
-casper::proxy::worker::Dispatcher::~Dispatcher ()
+casper::proxy::worker::http::Dispatcher::~Dispatcher ()
 {
     /* empty */
 }
@@ -49,9 +51,9 @@ casper::proxy::worker::Dispatcher::~Dispatcher ()
  *
  * @param a_config JSON object with required config.
  */
-void casper::proxy::worker::Dispatcher::Setup (const Json::Value& /* a_config */)
+void casper::proxy::worker::http::Dispatcher::Setup (const Json::Value& /* a_config */)
 {
-    CC_DEBUG_FAIL_IF_NOT_AT_THREAD(casper::proxy::worker::Dispatcher::thread_id_);
+    CC_DEBUG_FAIL_IF_NOT_AT_THREAD(casper::proxy::worker::http::Dispatcher::thread_id_);
 }
 
 /**
@@ -60,8 +62,8 @@ void casper::proxy::worker::Dispatcher::Setup (const Json::Value& /* a_config */
  * @param a_tracking Request tracking info.
  * @param a_args     HTTP args.
  */
-void casper::proxy::worker::Dispatcher::Push (const casper::job::deferrable::Tracking& a_tracking, const casper::proxy::worker::Arguments& a_args)
+void casper::proxy::worker::http::Dispatcher::Push (const casper::job::deferrable::Tracking& a_tracking, const casper::proxy::worker::http::Arguments& a_args)
 {
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
-    Dispatch(a_args, new casper::proxy::worker::Deferred(a_tracking, loggable_data_ CC_IF_DEBUG_CONSTRUCT_APPEND_PARAM_VALUE(thread_id_)));
+    Dispatch(a_args, new casper::proxy::worker::http::Deferred(a_tracking, loggable_data_ CC_IF_DEBUG_CONSTRUCT_APPEND_PARAM_VALUE(thread_id_)));
 }
