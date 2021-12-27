@@ -548,8 +548,9 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (c
  * @param a_arguments HTTP args.
  */
 void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::casper::job::deferrable::Tracking& a_tracking,
-                                                             const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments, casper::proxy::worker::http::oauth2::Parameters::GrantAuthCodeRequest& a_request,
-                                                             Json::Value& o_v8_data)
+                                                                     const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments,
+                                                                     casper::proxy::worker::http::oauth2::Parameters::GrantAuthCodeRequest& a_request,
+                                                                     Json::Value& o_v8_data)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
     // ... process ...

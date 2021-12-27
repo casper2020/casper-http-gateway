@@ -83,9 +83,12 @@ void casper::proxy::worker::http::oauth2::Deferred::Run (const casper::proxy::wo
     Bind(a_callbacks);
     // ... prepare HTTP client ...
     http_oauth2_ = new ::cc::easy::http::oauth2::Client(loggable_data_, arguments_->parameters().config_,
-                                                    arguments_->parameters().tokens([this](::cc::easy::http::oauth2::Client::Tokens& a_tokens){
-                                                        a_tokens.on_change_ = std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnOAuth2TokensChanged, this);
-                                                    })
+                                                        arguments_->parameters().tokens([this](::cc::easy::http::oauth2::Client::Tokens& a_tokens){
+                                                            a_tokens.on_change_ = std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnOAuth2TokensChanged, this);
+                                                        }),
+                                                        /* a_user_agent */ nullptr,
+                                                        arguments().parameters().config_.oauth2_.grant_.rfc_6749_strict_,
+                                                        arguments().parameters().config_.oauth2_.grant_.formpost_
     );
     if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
         http_oauth2_->SetcURLedCallbacks({
@@ -315,8 +318,7 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleAuthorization (const
                                                             /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
                                                             /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
                                                             /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
-                                                          },
-                                                          /* a_rfc_6749 */ grant.rfc_6749_strict_, /* a_formpost */ grant.formpost_);
+                                                          });
                 }
                 break;
             case ::cc::easy::http::oauth2::Client::GrantType::ClientCredentials:
@@ -324,7 +326,7 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleAuthorization (const
                     /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
                     /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
                     /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
-                }, /* a_rfc_6749 */ grant.rfc_6749_strict_);
+                });
                 break;
             default:
                 throw ::cc::NotImplemented("Grant Type '%s' not implemented!", grant.name_.c_str());
