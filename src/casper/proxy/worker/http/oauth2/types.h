@@ -26,9 +26,9 @@
 
 #include "json/json.h"
 
-#include "cc/easy/http.h"
-
 #include "cc/non-movable.h"
+
+#include "cc/easy/http/oauth2/client.h"
 
 #include <string>
 #include <map>
@@ -61,47 +61,38 @@ namespace casper
                         };
                     
                     public: // Data Type(s)
-                        
-                        typedef ::ev::curl::Request::Headers                        Headers;
-                        typedef std::map<std::string, ::ev::curl::Request::Headers> HeadersPerMethod;
-                        typedef ::ev::curl::Request::Timeouts                       Timeouts;
-                        
+                                                
                         typedef struct {
                             std::string tokens_;
                         } StorageEndpoints;
                         
                         typedef struct {
-                            StorageEndpoints endpoints_;
-                            Json::Value      arguments_;
-                            Headers          headers_;
-                            Timeouts         timeouts_;
+                            StorageEndpoints                           endpoints_;
+                            Json::Value                                arguments_;
+                            ::cc::easy::http::oauth2::Client::Headers  headers_;
+                            ::cc::easy::http::oauth2::Client::Timeouts timeouts_;
                         } Storage;
                         
                         typedef struct {
-                            Headers                              headers_;
-                            ::cc::easy::OAuth2HTTPClient::Tokens tokens_;
+                            ::cc::easy::http::oauth2::Client::Headers headers_;
+                            ::cc::easy::http::oauth2::Client::Tokens  tokens_;
                         } Storageless;
                         
                         typedef Json::Value Signing;
                         
                     public: // Const Data
                         
-                        const Type                                 type_;               //!< Config type, one of \link Type \link.
-                        const ::cc::easy::OAuth2HTTPClient::Config http_;               //!< OAuth2 configs
-                        const Headers                              headers_;            //!< additional headers per request
-                        const HeadersPerMethod                     headers_per_method_; //!< additional headers per request per method
-                        const Signing                              signing_;            //!< signing configs
+                        const Type                                               type_;               //!< Config type, one of \link Type \link.
+                        const ::cc::easy::http::oauth2::Client::Config           http_;               //!< OAuth2 configs
+                        const ::cc::easy::http::oauth2::Client::Headers          headers_;            //!< additional headers per request
+                        const ::cc::easy::http::oauth2::Client::HeadersPerMethod headers_per_method_; //!< additional headers per request per method
+                        const Signing                                            signing_;            //!< signing configs
                         
                     private: // Data
                         
-                        Storage*                                   storage_;        //!< storage config
+                        Storage* storage_;         //!< storage config
+                        Storageless* storageless_; //!< storageless config
 
-                    private: // Data
-                        
-                        Storageless*                               storageless_;    //!< storageless config
-
-                    private: // Data
-                                        
                     public: // Constructor(s) / Destructor
                         
                         Config () = delete;
@@ -115,7 +106,8 @@ namespace casper
                          * @param a_signing            Signing config.
                          * @param a_storage            Storage config.
                          */
-                        Config (const ::cc::easy::OAuth2HTTPClient::Config& a_config, const Headers& a_headers, const HeadersPerMethod& a_headers_per_method, const Signing& a_signing, const Storage& a_storage)
+                        Config (const ::cc::easy::http::oauth2::Client::Config& a_config, const ::cc::easy::http::oauth2::Client::Headers& a_headers,
+                                const ::cc::easy::http::oauth2::Client::HeadersPerMethod& a_headers_per_method, const Signing& a_signing, const Storage& a_storage)
                          : type_(Type::Storage), http_(a_config), headers_(a_headers), headers_per_method_(a_headers_per_method), signing_(a_signing)
                         {
                             storage_     = new Storage(a_storage);
@@ -131,7 +123,8 @@ namespace casper
                          * @param a_signing            Signing config.
                          * @param a_storageless        Storageless config.
                          */
-                        Config (const ::cc::easy::OAuth2HTTPClient::Config& a_config, const Headers& a_headers, const HeadersPerMethod& a_headers_per_method, const Signing& a_signing, const Storageless& a_storageless)
+                        Config (const ::cc::easy::http::oauth2::Client::Config& a_config, const ::cc::easy::http::oauth2::Client::Headers& a_headers,
+                                const ::cc::easy::http::oauth2::Client::HeadersPerMethod& a_headers_per_method, const Signing& a_signing, const Storageless& a_storageless)
                          : type_(Type::Storageless), http_(a_config), headers_(a_headers), headers_per_method_(a_headers_per_method), signing_(a_signing)
                         {
                             storage_                          = nullptr;
@@ -220,11 +213,11 @@ namespace casper
                     public: // Data Type(s)
                         
                         typedef struct {
-                            ::ev::curl::Request::HTTPRequestType method_;
-                            std::string                          url_;
-                            std::string                          body_;
-                            ::ev::curl::Request::Headers         headers_;
-                            ::ev::curl::Request::Timeouts        timeouts_;
+                            ::cc::easy::http::oauth2::Client::Method   method_;
+                            std::string                                url_;
+                            std::string                                body_;
+                            ::cc::easy::http::oauth2::Client::Headers  headers_;
+                            ::cc::easy::http::oauth2::Client::Timeouts timeouts_;
                         } Storage;
 
                         enum class RequestType : uint8_t {
@@ -233,30 +226,30 @@ namespace casper
                         };
                         
                         typedef struct {
-                            ::ev::curl::Request::HTTPRequestType method_;
-                            std::string                          url_;
-                            std::string                          body_;
-                            ::ev::curl::Request::Headers         headers_;
-                            ::ev::curl::Request::Timeouts        timeouts_;
-                            ::cc::easy::OAuth2HTTPClient::Tokens tokens_;
+                            ::cc::easy::http::oauth2::Client::Method   method_;
+                            std::string                                url_;
+                            std::string                                body_;
+                            ::cc::easy::http::oauth2::Client::Headers  headers_;
+                            ::cc::easy::http::oauth2::Client::Timeouts timeouts_;
+                            ::cc::easy::http::oauth2::Client::Tokens   tokens_;
                         } HTTPRequest;
                         
                         typedef struct {
-                            std::string                          value_;    //!< authorization code value
-                            std::string                          scope_;    //!< scope
-                            std::string                          state_;    //!< state
-                            ::ev::curl::Request::Timeouts        timeouts_; //!<
-                            ::cc::easy::OAuth2HTTPClient::Tokens tokens_;   //!<
+                            std::string                                value_;    //!< authorization code value
+                            std::string                                scope_;    //!< scope
+                            std::string                                state_;    //!< state
+                            ::cc::easy::http::oauth2::Client::Timeouts timeouts_; //!< http timeouts
+                            ::cc::easy::http::oauth2::Client::Tokens   tokens_;   //!< oauth2 tokens
                         } GrantAuthCodeRequest;
                         
                     public: // Const Data
                         
-                        const std::string                           id_;
-                        const Config::Type                          type_;
-                        const ::cc::easy::OAuth2HTTPClient::Config& config_;
-                        const Json::Value&                          data_;
-                        const bool                                  primitive_;
-                        const int                                   log_level_;
+                        const std::string                               id_;
+                        const Config::Type                              type_;
+                        const ::cc::easy::http::oauth2::Client::Config& config_;
+                        const Json::Value&                              data_;
+                        const bool                                      primitive_;
+                        const int                                       log_level_;
                         
                     private: // Data
                         
@@ -280,7 +273,7 @@ namespace casper
                          */
                         Parameters (const std::string& a_id,
                                     const Config::Type a_type,
-                                    const ::cc::easy::OAuth2HTTPClient::Config& a_config,
+                                    const ::cc::easy::http::oauth2::Client::Config& a_config,
                                     const Json::Value& a_data, const bool a_primitive, const int a_log_level)
                          : id_(a_id), type_(a_type), config_(a_config), data_(a_data), primitive_(a_primitive), log_level_(a_log_level),
                            storage_(nullptr), http_req_(nullptr), auth_code_req_(nullptr)
@@ -356,7 +349,7 @@ namespace casper
                             if ( nullptr == storage_ ) {
                                 // ... create it now ...
                                 storage_ = new Storage({
-                                    /* method_   */ ::ev::curl::Request::HTTPRequestType::NotSet,
+                                    /* method_   */ ::cc::easy::http::oauth2::Client::Method::NotSet,
                                     /* url_      */ "",
                                     /* body_     */ "",
                                     /* headers_  */ {},
@@ -372,7 +365,7 @@ namespace casper
                         /**
                          * @return R/O access to storage configs.
                          */
-                        inline const Storage& storage (const ::ev::curl::Request::HTTPRequestType a_type)
+                        inline const Storage& storage (const ::cc::easy::http::oauth2::Client::Method a_type)
                         {
                             if ( Config::Type::Storage != type_ || nullptr == storage_ ) {
                                 throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
@@ -386,7 +379,7 @@ namespace casper
                         /**
                          * @return R/O access to storage configs.
                          */
-                        inline const Storage& storage (const ::ev::curl::Request::HTTPRequestType a_type, const std::string& a_body)
+                        inline const Storage& storage (const ::cc::easy::http::oauth2::Client::Method a_type, const std::string& a_body)
                         {
                             if ( Config::Type::Storage != type_ || nullptr == storage_ ) {
                                 throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
@@ -429,7 +422,7 @@ namespace casper
                             // ... if doesn't exists yet ...
                             if ( nullptr == http_req_ ) {
                                 http_req_ = new HTTPRequest({
-                                    /* method_   */ ::ev::curl::Request::HTTPRequestType::NotSet,
+                                    /* method_   */ ::cc::easy::http::oauth2::Client::Method::NotSet,
                                     /* url_      */ "",
                                     /* body_     */ "",
                                     /* headers_  */ {},
@@ -455,7 +448,7 @@ namespace casper
                          *
                          * @return R/W access to request tokens data.
                          */
-                        inline ::cc::easy::OAuth2HTTPClient::Tokens& tokens (const std::function<void(::cc::easy::OAuth2HTTPClient::Tokens&)>& a_callback)
+                        inline ::cc::easy::http::oauth2::Client::Tokens& tokens (const std::function<void(::cc::easy::http::oauth2::Client::Tokens&)>& a_callback)
                         {
                             if ( nullptr != auth_code_req_ ) {
                                 // ... callback ...
@@ -474,7 +467,7 @@ namespace casper
                         /**
                          * @return R/O access to request OAuth2 tokens.
                          */
-                        inline const ::cc::easy::OAuth2HTTPClient::Tokens& tokens () const
+                        inline const ::cc::easy::http::oauth2::Client::Tokens& tokens () const
                         {
                             if ( nullptr != auth_code_req_ ) {
                                 // ... done ...

@@ -72,7 +72,7 @@ void casper::proxy::worker::http::Deferred::Run (const casper::proxy::worker::ht
     // ... bind callbacks ...
     Bind(a_callbacks);
     // ... prepare HTTP client ...
-    http_ = new ::cc::easy::HTTPClient(loggable_data_, tracking_.ua_.c_str());
+    http_ = new ::cc::easy::http::Client(loggable_data_, tracking_.ua_.c_str());
     if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
         http_->SetcURLedCallbacks({
             /* log_request_  */ std::bind(&casper::proxy::worker::http::Deferred::OnLogHTTPRequest , this, std::placeholders::_1, std::placeholders::_2),
@@ -97,29 +97,29 @@ void casper::proxy::worker::http::Deferred::Run (const casper::proxy::worker::ht
             http_->SetFollowLocation();
         }
         // ... set callbacks ...
-        const ::cc::easy::HTTPClient::RawCallbacks callbacks = {
+        const ::cc::easy::http::Client::Callbacks callbacks = {
             /* on_success_ */ std::bind(&casper::proxy::worker::http::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
             /* on_error_   */ std::bind(&casper::proxy::worker::http::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
             /* on_failure_ */ std::bind(&casper::proxy::worker::http::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
         };
         // ... async perform HTTP request ...
         switch(request.method_) {
-            case ::ev::curl::Request::HTTPRequestType::HEAD:
+            case ::cc::easy::http::Client::Method::HEAD:
                 http_->HEAD(request.url_, request.headers_, callbacks, &request.timeouts_);
                 break;
-            case ::ev::curl::Request::HTTPRequestType::GET:
+            case ::cc::easy::http::Client::Method::GET:
                 http_->GET(request.url_, request.headers_, callbacks, &request.timeouts_);
                 break;
-            case ::ev::curl::Request::HTTPRequestType::DELETE:
+            case ::cc::easy::http::Client::Method::DELETE:
                 http_->DELETE(request.url_, request.headers_, ( 0 != request.body_.length() ? &request.body_ : nullptr ), callbacks, &request.timeouts_);
                 break;
-            case ::ev::curl::Request::HTTPRequestType::POST:
+            case ::cc::easy::http::Client::Method::POST:
                 http_->POST(request.url_, request.headers_, request.body_, callbacks, &request.timeouts_);
                 break;
-            case ::ev::curl::Request::HTTPRequestType::PUT:
+            case ::cc::easy::http::Client::Method::PUT:
                 http_->PUT(request.url_, request.headers_, request.body_, callbacks, &request.timeouts_);
                 break;
-            case ::ev::curl::Request::HTTPRequestType::PATCH:
+            case ::cc::easy::http::Client::Method::PATCH:
                 http_->PATCH(request.url_, request.headers_, request.body_, callbacks, &request.timeouts_);
                 break;
             default:
@@ -157,9 +157,9 @@ void casper::proxy::worker::http::Deferred::Finalize (const std::string& a_tag)
 /**
  * @brief Called by HTTP client to report when an API request was performed.
  *
- * @param a_value RAW value.
+ * @param a_value Value.
  */
-void casper::proxy::worker::http::Deferred::OnHTTPRequestCompleted (const ::cc::easy::HTTPClient::RawValue& a_value)
+void casper::proxy::worker::http::Deferred::OnHTTPRequestCompleted (const ::cc::easy::http::Client::Value& a_value)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -179,7 +179,7 @@ void casper::proxy::worker::http::Deferred::OnHTTPRequestCompleted (const ::cc::
  *
  * @param a_error Error ocurred.
  */
-void casper::proxy::worker::http::Deferred::OnHTTPRequestError (const ::cc::easy::HTTPClient::RawError& a_value)
+void casper::proxy::worker::http::Deferred::OnHTTPRequestError (const ::cc::easy::http::Client::Error& a_value)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -219,9 +219,9 @@ void casper::proxy::worker::http::Deferred::OnHTTPRequestFailure (const ::cc::Ex
  * @brief Called by an HTTP client when it's time to log a request.
  *
  * @param a_request Request that will be running.
- * @param a_data    cURL(ed) style command ( for log proposes only ).
+ * @param a_data    cURL(ed) style command ( for log purposes only ).
  */
-void casper::proxy::worker::http::Deferred::OnLogHTTPRequest (const ::ev::curl::Request& a_request, const std::string& a_data)
+void casper::proxy::worker::http::Deferred::OnLogHTTPRequest (const ::cc::easy::http::Client::Request& a_request, const std::string& a_data)
 {
     OnHTTPRequestWillRunLogIt(a_request, a_data, http_options_);
 }
@@ -230,22 +230,22 @@ void casper::proxy::worker::http::Deferred::OnLogHTTPRequest (const ::ev::curl::
  * @brief Called by an HTTP client when it's time to log a request.
  *
  * @param a_value Post request execution, result data.
- * @param a_data    cURL(ed) style response data ( for log proposes only ).
+ * @param a_data    cURL(ed) style response data ( for log purposes only ).
  */
-void casper::proxy::worker::http::Deferred::OnLogHTTPValue (const ::ev::curl::Value& a_value, const std::string& a_data)
+void casper::proxy::worker::http::Deferred::OnLogHTTPValue (const ::cc::easy::http::Client::Value& a_value, const std::string& a_data)
 {
     OnHTTPRequestSteppedLogIt(a_value, a_data, http_options_);
 }
 
 // MARK: -
 /**
- * @brief Called by an HTTP client when a request will run and it's time to log data ( ⚠️ for logging proposes only, request has not started yet ! )
+ * @brief Called by an HTTP client when a request will run and it's time to log data ( ⚠️ for logging purposes only, request has not started yet ! )
  *
  * @param a_request Request that will be running.
- * @param a_data    cURL(ed) style command ( for log proposes only ).
+ * @param a_data    cURL(ed) style command ( for log purposes only ).
  * @param a_options Adjusted options for this request, for more info See \link proxy::worker::Deferred::HTTPOptions \link.
  */
-void casper::proxy::worker::http::Deferred::OnHTTPRequestWillRunLogIt (const ::ev::curl::Request& a_request, const std::string& a_data, const proxy::worker::http::Deferred::HTTPOptions a_options)
+void casper::proxy::worker::http::Deferred::OnHTTPRequestWillRunLogIt (const ::cc::easy::http::Client::Request& a_request, const std::string& a_data, const proxy::worker::http::Deferred::HTTPOptions a_options)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -270,13 +270,13 @@ void casper::proxy::worker::http::Deferred::OnHTTPRequestWillRunLogIt (const ::e
 }
 
 /**
- * @brief Called by an HTTP client when a request did run and it's time to log data ( ⚠️ for logging proposes only, request is it's not completed ! )
+ * @brief Called by an HTTP client when a request did run and it's time to log data ( ⚠️ for logging purposes only, request is it's not completed ! )
  *
  * @param a_value   Request post-execution, result data.
- * @param a_data    cURL(ed) style response data ( for log proposes only ).
+ * @param a_data    cURL(ed) style response data ( for log purposes only ).
  * @param a_options Adjusted options for this value, for more info See \link proxy::worker::Deferred::HTTPOptions \link.
  */
-void casper::proxy::worker::http::Deferred::OnHTTPRequestSteppedLogIt (const ::ev::curl::Value& a_value, const std::string& a_data, const proxy::worker::http::Deferred::HTTPOptions a_options)
+void casper::proxy::worker::http::Deferred::OnHTTPRequestSteppedLogIt (const ::cc::easy::http::Client::Value& a_value, const std::string& a_data, const proxy::worker::http::Deferred::HTTPOptions a_options)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();

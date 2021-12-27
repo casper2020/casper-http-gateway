@@ -27,7 +27,7 @@
  *
  * @param a_loggable_data Logging data params.
  * @param a_user_aget     HTTP User-Agent header value.
- * param a_thread_id      For debug proposes only
+ * param a_thread_id      For debug purposes only
  */
 casper::proxy::worker::http::Dispatcher::Dispatcher (const ev::Loggable::Data& a_loggable_data,
                                                              const std::string& a_user_agent

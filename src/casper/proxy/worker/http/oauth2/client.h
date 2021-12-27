@@ -100,7 +100,7 @@ namespace casper
                                                 
                     private: // Method(s) / Function(s) - Schedule Helper(s)
 
-                        ::cc::easy::OAuth2HTTPClient::GrantType TranslatedGrantType (const std::string& a_name);
+                        ::cc::easy::http::oauth2::Client::GrantType TranslatedGrantType (const std::string& a_name);
 
                         void SetupGrantRequest (const ::casper::job::deferrable::Tracking& a_tracking,
                                                 const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments, casper::proxy::worker::http::oauth2::Parameters::GrantAuthCodeRequest& a_auth_code,

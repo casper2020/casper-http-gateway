@@ -77,8 +77,8 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
     d_.on_deferred_request_completed_ = std::bind(&casper::proxy::worker::http::oauth2::Client::OnDeferredRequestCompleted, this, std::placeholders::_1, std::placeholders::_2);
     d_.on_deferred_request_failed_    = std::bind(&casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed   , this, std::placeholders::_1, std::placeholders::_2);
     // ...
-    const auto object2headers = [&json] (const Json::Value& a_object) -> std::map<std::string, std::vector<std::string>> {
-        std::map<std::string, std::vector<std::string>> h;
+    const auto object2headers = [&json] (const Json::Value& a_object) -> ::cc::easy::http::oauth2::Client::Headers {
+        ::cc::easy::http::oauth2::Client::Headers h;
         if ( false == a_object.isNull() ) {
             for ( auto member : a_object.getMemberNames() ) {
                 h[member].push_back(json.Get(a_object, member.c_str(), Json::ValueType::stringValue, nullptr).asString());
@@ -97,7 +97,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
             const Json::Value& grant_type_ref = json.Get(oauth2_ref  , "grant_type", Json::ValueType::stringValue , nullptr);
             const Json::Value& grant_type_obj = json.Get(oauth2_ref  , grant_type_ref.asCString(), Json::ValueType::objectValue , nullptr);
             const Json::Value  k_auto         = Json::Value(false);
-            const ::cc::easy::OAuth2HTTPClient::Config config = ::cc::easy::OAuth2HTTPClient::Config({
+            const ::cc::easy::http::oauth2::Client::Config config = ::cc::easy::http::oauth2::Client::Config({
                 /* oauth2_ */ {
                     /* grant_   */ {
                       /* name_            */ grant_type_ref.asString(),
@@ -119,12 +119,12 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                 }
             });
             // ...
-            proxy::worker::http::oauth2::Config::Headers headers;
+            ::cc::easy::http::oauth2::Client::Headers headers;
             const Json::Value& headers_ref = json.Get(provider_ref, "headers", Json::ValueType::objectValue, &Json::Value::null);
             if ( false == headers_ref.isNull() ) {
                 headers = object2headers(headers_ref);
             }
-            proxy::worker::http::oauth2::Config::HeadersPerMethod headers_per_method;
+            ::cc::easy::http::oauth2::Client::HeadersPerMethod headers_per_method;
             {
                 const Json::Value& headers_per_method_ref = json.Get(provider_ref, "headers_per_method", Json::ValueType::objectValue, &Json::Value::null);
                 if ( false == headers_per_method_ref.isNull() ) {
@@ -206,7 +206,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
     );
     // ... load it now ...
     script_->Load(/* a_external_scripts */ Json::Value::null, /* a_expressions */ {});
-    // ... for debug proposes only ...
+    // ... for debug purposes only ...
     CC_DEBUG_LOG_PRINT("dump-config", "----\n%s----\n", config.toStyledString().c_str());
 }
 
@@ -274,7 +274,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     //
     // COMMON
     //
-    const auto set_timeouts = [&json] (const Json::Value& a_timeouts, proxy::worker::http::oauth2::Config::Timeouts& o_timeouts) {
+    const auto set_timeouts = [&json] (const Json::Value& a_timeouts, ::cc::easy::http::oauth2::Client::Timeouts& o_timeouts) {
         // ... timeouts ...
         if ( false == a_timeouts.isNull() ) {
             const Json::Value connection_ref = json.Get(a_timeouts, "connection", Json::ValueType::uintValue, &Json::Value::null);
@@ -290,7 +290,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     //
     // STORAGE
     //
-    const auto set_storage = [this, &tracking, &arguments, &provider_cfg, &v8_data] (::cc::easy::OAuth2HTTPClient::Tokens* o_tokens) {
+    const auto set_storage = [this, &tracking, &arguments, &provider_cfg, &v8_data] (::cc::easy::http::oauth2::Client::Tokens* o_tokens) {
         // ... storageless?
         if ( proxy::worker::http::oauth2::Config::Type::Storageless == arguments.parameters().type_ ) {
             // ... copy latest tokens available?..
@@ -507,10 +507,10 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (c
 
 // MARK:  - Method(s) / Function(s) - Schedule Helper(s)
 
-::cc::easy::OAuth2HTTPClient::GrantType casper::proxy::worker::http::oauth2::Client::TranslatedGrantType (const std::string& a_name)
+::cc::easy::http::oauth2::Client::GrantType casper::proxy::worker::http::oauth2::Client::TranslatedGrantType (const std::string& a_name)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
-    ::cc::easy::OAuth2HTTPClient::GrantType  type = ::cc::easy::OAuth2HTTPClient::GrantType::NotSet;
+    ::cc::easy::http::oauth2::Client::GrantType  type = ::cc::easy::http::oauth2::Client::GrantType::NotSet;
     {
         CC_RAGEL_DECLARE_VARS(grant_type, a_name.c_str(), a_name.length());
         CC_DIAGNOSTIC_PUSH();
@@ -518,8 +518,8 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (c
         %%{
             machine GrantTypeMachine;
             main := |*
-                /authorization_code/i => { type = ::cc::easy::OAuth2HTTPClient::GrantType::AuthorizationCode; };
-                /client_credentials/i => { type = ::cc::easy::OAuth2HTTPClient::GrantType::ClientCredentials; };
+                /authorization_code/i => { type = ::cc::easy::http::oauth2::Client::GrantType::AuthorizationCode; };
+                /client_credentials/i => { type = ::cc::easy::http::oauth2::Client::GrantType::ClientCredentials; };
             *|;
             write data;
             write init;
@@ -530,8 +530,8 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (c
     }
     // ... process ...
     switch(type) {
-        case ::cc::easy::OAuth2HTTPClient::GrantType::AuthorizationCode:
-        case ::cc::easy::OAuth2HTTPClient::GrantType::ClientCredentials:
+        case ::cc::easy::http::oauth2::Client::GrantType::AuthorizationCode:
+        case ::cc::easy::http::oauth2::Client::GrantType::ClientCredentials:
             break;
         default:
             throw ::cc::NotImplemented("OAuth2 grant type '%s' not implemented // not supported!", a_name.c_str());
@@ -556,7 +556,7 @@ void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::cas
     const auto type_str = json.Get(a_arguments.parameters().data_, "type", Json::ValueType::stringValue, nullptr).asString();
     const auto type     = TranslatedGrantType(type_str);
     switch(type) {
-        case ::cc::easy::OAuth2HTTPClient::GrantType::AuthorizationCode:
+        case ::cc::easy::http::oauth2::Client::GrantType::AuthorizationCode:
             break;
         default:
             throw ::cc::NotImplemented("OAuth2 grant type '%s' not implemented // not supported!", type_str.c_str());
@@ -611,12 +611,12 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
         %%{
             machine ClientMachine;
             main := |*
-                /get/i    => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::GET;    };
-                /put/i    => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::PUT;    };
-                /delete/i => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::DELETE; };
-                /post/i   => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::POST;   };
-                /patch/i  => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::PATCH;  };
-                /head/i   => { a_request.method_ = ::ev::curl::Request::HTTPRequestType::HEAD;   };
+                /get/i    => { a_request.method_ = ::cc::easy::http::Client::Method::GET;    };
+                /put/i    => { a_request.method_ = ::cc::easy::http::Client::Method::PUT;    };
+                /delete/i => { a_request.method_ = ::cc::easy::http::Client::Method::DELETE; };
+                /post/i   => { a_request.method_ = ::cc::easy::http::Client::Method::POST;   };
+                /patch/i  => { a_request.method_ = ::cc::easy::http::Client::Method::PATCH;  };
+                /head/i   => { a_request.method_ = ::cc::easy::http::Client::Method::HEAD;   };
             *|;
             write data;
             write init;
@@ -651,7 +651,7 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
         // ... reject OAuth2 header(s) ...
         {
             for ( const auto& header : sk_rejected_headers_ ) {
-                const auto it = std::find_if(a_request.headers_.begin(), a_request.headers_.end(), ev::curl::Object::cURLHeaderMapKeyComparator(header));
+                const auto it = std::find_if(a_request.headers_.begin(), a_request.headers_.end(), ::cc::easy::http::Client::HeaderMapKeyComparator(header));
                 if ( a_request.headers_.end() != it ) {
                     a_request.headers_.erase(it);
                 }
@@ -687,7 +687,7 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
         // ... double check, prevent injected OAuth2 header(s) ...
         {
             for ( const auto& header : sk_rejected_headers_ ) {
-                const auto it = std::find_if(a_request.headers_.begin(), a_request.headers_.end(), ev::curl::Object::cURLHeaderMapKeyComparator(header));
+                const auto it = std::find_if(a_request.headers_.begin(), a_request.headers_.end(), ::cc::easy::http::Client::HeaderMapKeyComparator(header));
                 if ( a_request.headers_.end() != it ) {
                     a_request.headers_.erase(it);
                 }

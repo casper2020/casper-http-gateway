@@ -26,7 +26,9 @@
 
 #include "casper/proxy/worker/http/oauth2/types.h"
 
-#include "cc/easy/http.h"
+#include "cc/easy/http/client.h"
+#include "cc/easy/http/oauth2/client.h"
+
 #include "cc/bitwise_enum.h"
 
 #include <vector>
@@ -83,8 +85,8 @@ namespace casper
 
                     private: // Helper(s)
 
-                        ::cc::easy::HTTPClient*                         http_;
-                        ::cc::easy::OAuth2HTTPClient*                   http_oauth2_;
+                        ::cc::easy::http::Client*                       http_;
+                        ::cc::easy::http::oauth2::Client*               http_oauth2_;
                         HTTPOptions                                     http_options_;
                         std::vector<HTTPTrace>                          http_trace_;
 
@@ -117,29 +119,29 @@ namespace casper
                     private: // Method(s) / Function(s) - HTTP && OAuth2 HTTP Client Request(s) Callbacks
 
                         void OnOAuth2TokensChanged  ();
-                        void OnHTTPRequestCompleted (const ::cc::easy::HTTPClient::RawValue& a_value);
-                        void OnHTTPRequestError     (const ::cc::easy::HTTPClient::RawError& a_error);
+                        void OnHTTPRequestCompleted (const ::cc::easy::http::oauth2::Client::Value& a_value);
+                        void OnHTTPRequestError     (const ::cc::easy::http::oauth2::Client::Error& a_error);
                         void OnHTTPRequestFailure   (const ::cc::Exception& a_exception);
                         
                     private: // Method(s) / Function(s) - HTTP && OAuth2 HTTP Client Logging Callbacks
 
-                        void OnLogHTTPRequest (const ::ev::curl::Request&, const std::string&);
-                        void OnLogHTTPValue   (const ::ev::curl::Value&, const std::string&);
+                        void OnLogHTTPRequest            (const ::cc::easy::http::oauth2::Client::Request&, const std::string&);
+                        void OnLogHTTPValue              (const ::cc::easy::http::oauth2::Client::Value&, const std::string&);
 
-                        void LogHTTPOAuth2ClientRequest  (const ::ev::curl::Request&, const std::string&);
-                        void LogHTTPOAuth2ClientValue    (const ::ev::curl::Value&, const std::string&);
+                        void LogHTTPOAuth2ClientRequest  (const ::cc::easy::http::oauth2::Client::Request&, const std::string&);
+                        void LogHTTPOAuth2ClientValue    (const ::cc::easy::http::oauth2::Client::Value&, const std::string&);
                         
                     private: // Method(s) / Function(s) - HTTP && OAuth2 HTTP Client Debug Callbacks
                         
                         CC_IF_DEBUG(
-                            void LogHTTPOAuth2ClientDebug    (const ::ev::curl::Request&, const std::string&);
-                            void LogHTTPOAuth2ClientProgress (const ::ev::curl::Request&, const uint8_t, const bool);
+                            void LogHTTPOAuth2ClientDebug    (const ::cc::easy::http::oauth2::Client::Request&, const std::string&);
+                            void LogHTTPOAuth2ClientProgress (const ::cc::easy::http::oauth2::Client::Request&, const uint8_t, const bool);
                         )
 
                     private: //  Method(s) / Function(s) - HTTP && OAuth2 HTTP Clients Callback(s)
                         
-                        void OnHTTPRequestWillRunLogIt (const ::ev::curl::Request&, const std::string&, const HTTPOptions);
-                        void OnHTTPRequestSteppedLogIt (const ::ev::curl::Value&, const std::string&, const HTTPOptions);
+                        void OnHTTPRequestWillRunLogIt (const ::cc::easy::http::oauth2::Client::Request&, const std::string&, const HTTPOptions);
+                        void OnHTTPRequestSteppedLogIt (const ::cc::easy::http::oauth2::Client::Value&, const std::string&, const HTTPOptions);
 
                     }; // end of class 'Deferred'
 

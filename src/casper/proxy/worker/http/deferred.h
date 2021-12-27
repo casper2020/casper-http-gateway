@@ -26,7 +26,8 @@
 
 #include "casper/proxy/worker/http/types.h"
 
-#include "cc/easy/http.h"
+#include "cc/easy/http/client.h"
+
 #include "cc/bitwise_enum.h"
 
 #include <vector>
@@ -70,9 +71,9 @@ namespace casper
 
                 private: // Helper(s)
 
-                    ::cc::easy::HTTPClient* http_;
-                    HTTPOptions             http_options_;
-                    std::vector<HTTPTrace>  http_trace_;
+                    ::cc::easy::http::Client* http_;
+                    HTTPOptions               http_options_;
+                    std::vector<HTTPTrace>    http_trace_;
 
                 public: // Constructor(s) / Destructor
 
@@ -90,19 +91,19 @@ namespace casper
 
                 private: // Method(s) / Function(s) - HTTP Client Request(s) Callbacks
 
-                    void OnHTTPRequestCompleted (const ::cc::easy::HTTPClient::RawValue& a_value);
-                    void OnHTTPRequestError     (const ::cc::easy::HTTPClient::RawError& a_error);
+                    void OnHTTPRequestCompleted (const ::cc::easy::http::Client::Value& a_value);
+                    void OnHTTPRequestError     (const ::cc::easy::http::Client::Error& a_error);
                     void OnHTTPRequestFailure   (const ::cc::Exception& a_exception);
                     
                 private: // Method(s) / Function(s) - HTTP Client Logging Callbacks
 
-                    void OnLogHTTPRequest (const ::ev::curl::Request&, const std::string&);
-                    void OnLogHTTPValue   (const ::ev::curl::Value&, const std::string&);
+                    void OnLogHTTPRequest (const ::cc::easy::http::Client::Request&, const std::string&);
+                    void OnLogHTTPValue   (const ::cc::easy::http::Client::Value&, const std::string&);
 
                 private: //  Method(s) / Function(s) - HTTP Clients Callback(s)
                     
-                    void OnHTTPRequestWillRunLogIt (const ::ev::curl::Request&, const std::string&, const HTTPOptions);
-                    void OnHTTPRequestSteppedLogIt (const ::ev::curl::Value&, const std::string&, const HTTPOptions);
+                    void OnHTTPRequestWillRunLogIt (const ::cc::easy::http::Client::Request&, const std::string&, const HTTPOptions);
+                    void OnHTTPRequestSteppedLogIt (const ::cc::easy::http::Client::Value&, const std::string&, const HTTPOptions);
 
                 }; // end of class 'Deferred'
 

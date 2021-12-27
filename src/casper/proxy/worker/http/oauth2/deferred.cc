@@ -82,8 +82,8 @@ void casper::proxy::worker::http::oauth2::Deferred::Run (const casper::proxy::wo
     // ... bind callbacks ...
     Bind(a_callbacks);
     // ... prepare HTTP client ...
-    http_oauth2_ = new ::cc::easy::OAuth2HTTPClient(loggable_data_, arguments_->parameters().config_,
-                                                    arguments_->parameters().tokens([this](::cc::easy::OAuth2HTTPClient::Tokens& a_tokens){
+    http_oauth2_ = new ::cc::easy::http::oauth2::Client(loggable_data_, arguments_->parameters().config_,
+                                                    arguments_->parameters().tokens([this](::cc::easy::http::oauth2::Client::Tokens& a_tokens){
                                                         a_tokens.on_change_ = std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnOAuth2TokensChanged, this);
                                                     })
     );
@@ -142,9 +142,9 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleLoadTokens (const bo
             // ... then, perform request ...
             operations_.push_back(Deferred::Operation::PerformRequest);
             // ... but first, perform obtain tokens ...
-            (void)arguments_->parameters().storage(::ev::curl::Request::HTTPRequestType::GET);
+            (void)arguments_->parameters().storage(::cc::easy::http::Client::Method::GET);
             // ... prepare HTTP client ...
-            http_ = new ::cc::easy::HTTPClient(loggable_data_, tracking_.ua_.c_str());
+            http_ = new ::cc::easy::http::Client(loggable_data_, tracking_.ua_.c_str());
             if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
                 http_->SetcURLedCallbacks({
                     /* log_request_  */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
@@ -156,7 +156,7 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleLoadTokens (const bo
                 // ... first load tokens from db ...
                 const auto& storage = arguments_->parameters().storage();
                 http_->GET(storage.url_, storage.headers_,
-                           ::cc::easy::HTTPClient::RawCallbacks({
+                           ::cc::easy::http::Client::Callbacks({
                               /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
                               /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
                               /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
@@ -170,10 +170,10 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleLoadTokens (const bo
         {
             // ... since we're storageless, we're m2m ....
             switch(arguments().parameters().config_.oauth2_.grant_.type_) {
-                case ::cc::easy::OAuth2HTTPClient::GrantType::ClientCredentials:
+                case ::cc::easy::http::oauth2::Client::GrantType::ClientCredentials:
                     allow_oauth2_restart_ = true;
                     break;
-                case ::cc::easy::OAuth2HTTPClient::GrantType::AuthorizationCode:
+                case ::cc::easy::http::oauth2::Client::GrantType::AuthorizationCode:
                     allow_oauth2_restart_ = arguments().parameters().config_.oauth2_.grant_.auto_;
                     break;
                 default:
@@ -223,7 +223,7 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleSaveTokens (const bo
         {
             // ... prepare HTTP client ...
             if ( nullptr == http_ ) {
-                http_ = new ::cc::easy::HTTPClient(loggable_data_, tracking_.ua_.c_str());
+                http_ = new ::cc::easy::http::Client(loggable_data_, tracking_.ua_.c_str());
                 if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
                     http_->SetcURLedCallbacks({
                         /* log_request_  */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
@@ -240,13 +240,13 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleSaveTokens (const bo
             body["refresh_token"] = ede(tokens.refresh_);
             body["expires_in"]    = static_cast<Json::UInt64>(tokens.expires_in_);
             body["scope"]         = tokens.scope_;
-            (void)arguments_->parameters().storage(::ev::curl::Request::HTTPRequestType::POST, json.Write(body));
+            (void)arguments_->parameters().storage(::cc::easy::http::Client::Method::POST, json.Write(body));
             // ... HTTP requests must be performed @ MAIN thread ...
             CallOnMainThread([this]() {
                 const auto& storage = arguments_->parameters().storage();
                 // ... save tokens from db ...
                 http_->POST(storage.url_, storage.headers_, storage.body_,
-                            ::cc::easy::HTTPClient::RawCallbacks({
+                            ::cc::easy::http::Client::Callbacks({
                                     /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
                                     /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
                                     /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
@@ -289,8 +289,8 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleAuthorization (const
     // ... sanity check ...
     const auto grant = arguments().parameters().config_.oauth2_.grant_;
     switch(grant.type_) {
-        case ::cc::easy::OAuth2HTTPClient::GrantType::AuthorizationCode:
-        case ::cc::easy::OAuth2HTTPClient::GrantType::ClientCredentials:
+        case ::cc::easy::http::oauth2::Client::GrantType::AuthorizationCode:
+        case ::cc::easy::http::oauth2::Client::GrantType::ClientCredentials:
             break;
         default:
             throw ::cc::NotImplemented("Grant Type '%s' not implemented!", grant.name_.c_str());
@@ -299,7 +299,7 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleAuthorization (const
     CallOnMainThread([this, grant]() {
         //
         switch(grant.type_) {
-            case ::cc::easy::OAuth2HTTPClient::GrantType::AuthorizationCode:
+            case ::cc::easy::http::oauth2::Client::GrantType::AuthorizationCode:
                 if ( true == grant.auto_ ) {
                     http_oauth2_->AuthorizationCodeGrant({
                         /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
@@ -319,7 +319,7 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleAuthorization (const
                                                           /* a_rfc_6749 */ grant.rfc_6749_strict_, /* a_formpost */ grant.formpost_);
                 }
                 break;
-            case ::cc::easy::OAuth2HTTPClient::GrantType::ClientCredentials:
+            case ::cc::easy::http::oauth2::Client::GrantType::ClientCredentials:
                 http_oauth2_->ClientCredentialsGrant({
                     /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
                     /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
@@ -359,28 +359,28 @@ void casper::proxy::worker::http::oauth2::Deferred::SchedulePerformRequest (cons
         //
         const auto& request = arguments_->parameters().http_request();
         // ... async perform HTTP request ...
-        const ::cc::easy::HTTPClient::RawCallbacks callbacks = {
+        const ::cc::easy::http::Client::Callbacks callbacks = {
             /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
             /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
             /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
         };
         switch(request.method_) {
-            case ::ev::curl::Request::HTTPRequestType::HEAD:
+            case ::cc::easy::http::Client::Method::HEAD:
                 http_oauth2_->HEAD(request.url_, request.headers_, callbacks, &request.timeouts_);
                 break;
-            case ::ev::curl::Request::HTTPRequestType::GET:
+            case ::cc::easy::http::Client::Method::GET:
                 http_oauth2_->GET(request.url_, request.headers_, callbacks, &request.timeouts_);
                 break;
-            case ::ev::curl::Request::HTTPRequestType::DELETE:
+            case ::cc::easy::http::Client::Method::DELETE:
                 http_oauth2_->DELETE(request.url_, request.headers_, ( 0 != request.body_.length() ? &request.body_ : nullptr ), callbacks, &request.timeouts_);
                 break;
-            case ::ev::curl::Request::HTTPRequestType::POST:
+            case ::cc::easy::http::Client::Method::POST:
                 http_oauth2_->POST(request.url_, request.headers_, request.body_, callbacks, &request.timeouts_);
                 break;
-            case ::ev::curl::Request::HTTPRequestType::PUT:
+            case ::cc::easy::http::Client::Method::PUT:
                 http_oauth2_->PUT(request.url_, request.headers_, request.body_, callbacks, &request.timeouts_);
                 break;
-            case ::ev::curl::Request::HTTPRequestType::PATCH:
+            case ::cc::easy::http::Client::Method::PATCH:
                 http_oauth2_->PATCH(request.url_, request.headers_, request.body_, callbacks, &request.timeouts_);
                 break;
             default:
@@ -431,9 +431,9 @@ void casper::proxy::worker::http::oauth2::Deferred::OnOAuth2TokensChanged ()
 /**
  * @brief Called by HTTP client to report when an API request was performed.
  *
- * @param a_value RAW value.
+ * @param a_value Value.
  */
-void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted (const ::cc::easy::HTTPClient::RawValue& a_value)
+void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted (const ::cc::easy::http::oauth2::Client::Value& a_value)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -455,7 +455,7 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted (cons
                 response_.Parse();
                 if ( CC_EASY_HTTP_OK == response_.code() ) {
                     const Json::Value& data = response_.json();
-                    (void)arguments_->parameters().tokens([&json, &data](::cc::easy::OAuth2HTTPClient::Tokens& a_tokens) {
+                    (void)arguments_->parameters().tokens([&json, &data](::cc::easy::http::oauth2::Client::Tokens& a_tokens) {
                         a_tokens.type_    = json.Get(data, "token_type", Json::ValueType::stringValue, nullptr).asString();
                         a_tokens.access_  = edd(json.Get(data, "access_token", Json::ValueType::stringValue, nullptr).asString());
                         a_tokens.refresh_ = edd(json.Get(data, "refresh_token", Json::ValueType::stringValue, nullptr).asString());
@@ -486,7 +486,7 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted (cons
                 response_.Parse();
                 if ( CC_EASY_HTTP_OK == response_.code() ) {
                     const Json::Value& data = response_.json();
-                    (void)arguments_->parameters().tokens([&json, &data](::cc::easy::OAuth2HTTPClient::Tokens& a_tokens) {
+                    (void)arguments_->parameters().tokens([&json, &data](::cc::easy::http::oauth2::Client::Tokens& a_tokens) {
                         a_tokens.access_ = json.Get(data, "access_token", Json::ValueType::stringValue, nullptr).asString();
                         const Json::Value& refresh_token = json.Get(data, "refresh_token", Json::ValueType::stringValue, &Json::Value::null);
                         if ( false == refresh_token.isNull() ) {
@@ -623,7 +623,7 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted (cons
  *
  * @param a_error Error ocurred.
  */
-void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError (const ::cc::easy::HTTPClient::RawError& a_value)
+void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError (const ::cc::easy::http::Client::Error& a_value)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -663,9 +663,9 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure (const 
  * @brief Called by an HTTP client when it's time to log a request.
  *
  * @param a_request Request that will be running.
- * @param a_data    cURL(ed) style command ( for log proposes only ).
+ * @param a_data    cURL(ed) style command ( for log purposes only ).
  */
-void casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPRequest (const ::ev::curl::Request& a_request, const std::string& a_data)
+void casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPRequest (const ::cc::easy::http::oauth2::Client::Request& a_request, const std::string& a_data)
 {
     OnHTTPRequestWillRunLogIt(a_request, a_data, ( ( http_options_ &~ HTTPOptions::OAuth2 ) | HTTPOptions::NonOAuth2 ));
 }
@@ -674,9 +674,9 @@ void casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPRequest (const ::ev
  * @brief Called by an HTTP client when it's time to log a request.
  *
  * @param a_value Post request execution, result data.
- * @param a_data    cURL(ed) style response data ( for log proposes only ).
+ * @param a_data    cURL(ed) style response data ( for log purposes only ).
  */
-void casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPValue (const ::ev::curl::Value& a_value, const std::string& a_data)
+void casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPValue (const ::cc::easy::http::oauth2::Client::Value& a_value, const std::string& a_data)
 {
     OnHTTPRequestSteppedLogIt(a_value, a_data, ( ( http_options_ &~ HTTPOptions::OAuth2 ) | HTTPOptions::NonOAuth2 ));
 }
@@ -687,9 +687,9 @@ void casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPValue (const ::ev::
  * @brief Called by an HTTP client when it's time to log a request.
  *
  * @param a_request Request that will be running.
- * @param a_data    cURL(ed) style command ( for log proposes only ).
+ * @param a_data    cURL(ed) style command ( for log purposes only ).
  */
-void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientRequest (const ::ev::curl::Request& a_request, const std::string& a_data)
+void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientRequest (const ::cc::easy::http::oauth2::Client::Request& a_request, const std::string& a_data)
 {
     OnHTTPRequestWillRunLogIt(a_request, a_data, ( ( http_options_ &~ HTTPOptions::NonOAuth2 ) | HTTPOptions::OAuth2 ));
 }
@@ -698,14 +698,14 @@ void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientRequest (
  * @brief Called by an HTTP client when it's time to log a request.
  *
  * @param a_value Post request execution, result data.
- * @param a_data  cURL(ed) style response data ( for log proposes only ).
+ * @param a_data  cURL(ed) style response data ( for log purposes only ).
  */
-void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientValue (const ::ev::curl::Value& a_value, const std::string& a_data)
+void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientValue (const ::cc::easy::http::oauth2::Client::Value& a_value, const std::string& a_data)
 {
     OnHTTPRequestSteppedLogIt(a_value, a_data, ( ( http_options_ &~ HTTPOptions::NonOAuth2 ) | HTTPOptions::OAuth2 ));
 }
 
-// MARK: - ⚠️ ☠️ THIS IS FOR DEBUG PROPOSES ONLY - NOT PRODUCTION READY ☠️ ⚠️
+// MARK: - ⚠️ ☠️ THIS IS FOR DEBUG PURPOSES ONLY - NOT PRODUCTION READY ☠️ ⚠️
 CC_IF_DEBUG(
 /**
  * @brief Called by an HTTP client when it's time to log data.
@@ -713,7 +713,7 @@ CC_IF_DEBUG(
  * @param a_request Request that is being executed.
  * @param a_data    Data to log.
  */
-void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientDebug (const ::ev::curl::Request& a_request, const std::string& a_data)
+void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientDebug (const ::cc::easy::http::oauth2::Client::Request& a_request, const std::string& a_data)
 {
     // ... just log it ...
     CC_DEBUG_LOG_MSG(CC_QUALIFIED_CLASS_NAME(this).c_str(),  "[%p] %s\n", &a_request, a_data.c_str());
@@ -726,7 +726,7 @@ void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientDebug (co
  * @param a_percentage 0..100
  * @param a_upload     True if it's related to data tx, false for data rx.
  */
-void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientProgress (const ::ev::curl::Request& a_request, const uint8_t a_percentage, const bool a_upload)
+void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientProgress (const ::cc::easy::http::oauth2::Client::Request& a_request, const uint8_t a_percentage, const bool a_upload)
 {
     // ... just log it ...
     CC_DEBUG_LOG_MSG(CC_QUALIFIED_CLASS_NAME(this).c_str(), "[%p] %8s: " UINT8_FMT "%% completed\n", &a_request, ( a_upload ? "UPLOAD" : "DOWNLOAD" ), a_percentage);
@@ -735,13 +735,13 @@ void casper::proxy::worker::http::oauth2::Deferred::LogHTTPOAuth2ClientProgress 
 
 // MARK: -
 /**
- * @brief Called by an HTTP client when a request will run and it's time to log data ( ⚠️ for logging proposes only, request has not started yet ! )
+ * @brief Called by an HTTP client when a request will run and it's time to log data ( ⚠️ for logging purposes only, request has not started yet ! )
  *
  * @param a_request Request that will be running.
- * @param a_data    cURL(ed) style command ( for log proposes only ).
+ * @param a_data    cURL(ed) style command ( for log purposes only ).
  * @param a_options Adjusted options for this request, for more info See \link proxy::worker::Deferred::HTTPOptions \link.
  */
-void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestWillRunLogIt (const ::ev::curl::Request& a_request, const std::string& a_data, const proxy::worker::http::oauth2::Deferred::HTTPOptions a_options)
+void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestWillRunLogIt (const ::cc::easy::http::oauth2::Client::Request& a_request, const std::string& a_data, const proxy::worker::http::oauth2::Deferred::HTTPOptions a_options)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
@@ -772,13 +772,13 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestWillRunLogIt (c
 }
 
 /**
- * @brief Called by an HTTP client when a request did run and it's time to log data ( ⚠️ for logging proposes only, request is it's not completed ! )
+ * @brief Called by an HTTP client when a request did run and it's time to log data ( ⚠️ for logging purposes only, request is it's not completed ! )
  *
  * @param a_value   Request post-execution, result data.
- * @param a_data    cURL(ed) style response data ( for log proposes only ).
+ * @param a_data    cURL(ed) style response data ( for log purposes only ).
  * @param a_options Adjusted options for this value, for more info See \link proxy::worker::Deferred::HTTPOptions \link.
  */
-void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestSteppedLogIt (const ::ev::curl::Value& a_value, const std::string& a_data, const proxy::worker::http::oauth2::Deferred::HTTPOptions a_options)
+void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestSteppedLogIt (const ::cc::easy::http::oauth2::Client::Value& a_value, const std::string& a_data, const proxy::worker::http::oauth2::Deferred::HTTPOptions a_options)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();

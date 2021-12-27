@@ -24,11 +24,11 @@
 
 #include "casper/job/deferrable/arguments.h"
 
-#include "json/json.h"
-
-#include "cc/easy/http.h"
-
 #include "cc/non-movable.h"
+
+#include "cc/easy/http/client.h"
+
+#include "json/json.h"
 
 #include <string>
 #include <map>
@@ -53,12 +53,12 @@ namespace casper
                 public: // Data Type(s)
 
                     typedef struct {
-                        ::ev::curl::Request::HTTPRequestType method_;
-                        std::string                          url_;
-                        std::string                          body_;
-                        ::ev::curl::Request::Headers         headers_;
-                        ::ev::curl::Request::Timeouts        timeouts_;
-                        bool                                 follow_location_;
+                        ::cc::easy::http::Client::Method      method_;
+                        std::string                           url_;
+                        std::string                           body_;
+                        ::cc::easy::http::Client::Headers     headers_;
+                        ::cc::easy::http::Client::Timeouts    timeouts_;
+                        bool                                  follow_location_;
                     } HTTPRequest;
                     
                 public: // Const Data
@@ -140,7 +140,7 @@ namespace casper
                         // ... if doesn't exists yet ...
                         if ( nullptr == http_req_ ) {
                             http_req_ = new HTTPRequest({
-                                /* method_          */ ::ev::curl::Request::HTTPRequestType::NotSet,
+                                /* method_          */ ::cc::easy::http::Client::Method::NotSet,
                                 /* url_             */ "",
                                 /* body_            */ "",
                                 /* headers_         */ {},

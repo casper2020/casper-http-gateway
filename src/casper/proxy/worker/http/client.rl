@@ -131,12 +131,12 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
             %%{
                 machine ClientMachine;
                 main := |*
-                    /get/i    => { request.method_ = ::ev::curl::Request::HTTPRequestType::GET;    };
-                    /put/i    => { request.method_ = ::ev::curl::Request::HTTPRequestType::PUT;    };
-                    /delete/i => { request.method_ = ::ev::curl::Request::HTTPRequestType::DELETE; };
-                    /post/i   => { request.method_ = ::ev::curl::Request::HTTPRequestType::POST;   };
-                    /patch/i  => { request.method_ = ::ev::curl::Request::HTTPRequestType::PATCH;  };
-                    /head/i   => { request.method_ = ::ev::curl::Request::HTTPRequestType::HEAD;   };
+                    /get/i    => { request.method_ = ::cc::easy::http::Client::Method::GET;    };
+                    /put/i    => { request.method_ = ::cc::easy::http::Client::Method::PUT;    };
+                    /delete/i => { request.method_ = ::cc::easy::http::Client::Method::DELETE; };
+                    /post/i   => { request.method_ = ::cc::easy::http::Client::Method::POST;   };
+                    /patch/i  => { request.method_ = ::cc::easy::http::Client::Method::PATCH;  };
+                    /head/i   => { request.method_ = ::cc::easy::http::Client::Method::HEAD;   };
                 *|;
                 write data;
                 write init;
@@ -153,7 +153,7 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
             for ( auto key : params.getMemberNames() ) {
                 map[key] = json.Get(params, key.c_str(), Json::ValueType::stringValue, nullptr).asString();
             }
-            ::cc::easy::HTTPClient::SetURLQuery(request.url_, map, request.url_);
+            ::cc::easy::http::Client::SetURLQuery(request.url_, map, request.url_);
         }
         // ... body ...
         if ( false == body.isNull() ) {
