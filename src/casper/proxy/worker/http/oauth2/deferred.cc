@@ -597,13 +597,11 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted (cons
     if ( true == finalize ) {
         // ... exception: override 302 responses ...
         if ( CC_EASY_HTTP_MOVED_TEMPORARILY == a_value.code() && Deferred::Operation::RestartOAuth2 == current_ ) {
-            // TODO: check error string
-            response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, "application/json", "{\error\":\"TODO\"}", a_value.rtt());
+            response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, "application/json", "{\"error\":\"unsupported_response\",\"error_description\":\"302 - 302 Moved Temporarily\"}", a_value.rtt());
         } else {
             // ... 'main' target is 'PerformRequest' operation response ...
             const std::vector<Deferred::Operation> priority = {
-                // TODO: on 2nd sequencer job failed - what response to send?
-                Deferred::Operation::PerformRequest, Deferred::Operation::LoadTokens, Deferred::Operation::RestartOAuth2
+                Deferred::Operation::PerformRequest, Deferred::Operation::RestartOAuth2, Deferred::Operation::LoadTokens
             };
             for ( const auto& p : priority ) {
                 const auto it = std::find_if(responses_.begin(), responses_.end(), [&p](const std::pair<Operation, job::deferrable::Response>& a_result) {
