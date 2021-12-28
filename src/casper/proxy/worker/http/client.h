@@ -54,6 +54,8 @@ namespace casper
 
                 class Client final : public ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>
                 {
+                    
+                    using ClientBaseClass = ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>;
 
                 public: // Static Const Data
                     

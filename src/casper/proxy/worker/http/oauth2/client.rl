@@ -44,7 +44,7 @@ const casper::proxy::worker::http::oauth2::Client::RejectedHeadersSet casper::pr
  * param a_config
  */
 casper::proxy::worker::http::oauth2::Client::Client (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config)
-    : ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>("OHC", sk_tube_, a_loggable_data, a_config, /* a_sequentiable */ false)
+    : ClientBaseClass("OHC", sk_tube_, a_loggable_data, a_config, /* a_sequentiable */ false)
 {
     script_ = nullptr;
 }
@@ -236,16 +236,24 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     // }
     bool               broker    = false;
     const Json::Value& payload   = Payload(a_payload, &broker);
+    const Json::Value& i18n = json.Get(payload, "i18n", Json::ValueType::objectValue, &Json::Value::null);
+    if ( false == i18n.isNull() ) {
+        OverrideI18N(i18n);
+    }
     const Json::Value& behaviour = json.Get(payload, "behaviour", Json::ValueType::stringValue, &sk_behaviour_);
     const Json::Value& provider  = json.Get(payload, "provider" , Json::ValueType::stringValue, nullptr);
+        
     const auto& provider_it = providers_.find(provider.asString());
     if ( providers_.end() == provider_it ) {
         throw ::cc::BadRequest("Unknown provider '%s'!", provider.asCString());
     }
-    
+        
     const Json::Value& what_ref = json.Get(payload, "what"              , Json::ValueType::stringValue, nullptr);
     const Json::Value& what_obj = json.Get(payload, what_ref.asCString(), Json::ValueType::objectValue, &Json::Value::null);
     
+    const Json::Value& purpose  = json.Get(payload, "purpose", Json::ValueType::stringValue, &provider_it->second->storage().arguments_["purpose"]);
+    const Json::Value& scope    = json.Get(payload, "scope"  , Json::ValueType::stringValue, &provider_it->second->storage().arguments_["scope"]);
+
     // ... prepare tracking info ...
     const ::casper::job::deferrable::Tracking tracking = {
         /* bjid_ */ a_id,
@@ -290,7 +298,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     //
     // STORAGE
     //
-    const auto set_storage = [this, &tracking, &arguments, &provider_cfg, &v8_data] (::cc::easy::http::oauth2::Client::Tokens* o_tokens) {
+    const auto set_storage = [this, &tracking, &arguments, &purpose, &scope, &provider_cfg, &v8_data] (::cc::easy::http::oauth2::Client::Tokens* o_tokens) {
         // ... storageless?
         if ( proxy::worker::http::oauth2::Config::Type::Storageless == arguments.parameters().type_ ) {
             // ... copy latest tokens available?..
@@ -309,6 +317,9 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
                     }
                 }
             }
+            // ... overload 'purpose' and 'scope' ...
+            v8_data["purpose"] = purpose;
+            v8_data["scope"  ] = scope;
             // ... setup load/save tokens ...
             arguments.parameters().storage([&, this](proxy::worker::http::oauth2::Parameters::Storage& a_storage){
                 // ... copy config headers ...
@@ -359,10 +370,8 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     // ... schedule deferred HTTP request ...
     dynamic_cast<casper::proxy::worker::http::oauth2::Dispatcher*>(d_.dispatcher_)->Push(tracking, arguments);
     // ... publish progress ...
-    ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>::Publish(tracking.bjid_, tracking.rcid_, tracking.rjid_,
-                                                                                                  ClientStep::DoingIt,
-                                                                                                  ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>::Status::InProgress,
-                                                                                                  sk_i18n_in_progress_.key_, sk_i18n_in_progress_.arguments_
+    ClientBaseClass::Publish(tracking.bjid_, tracking.rcid_, tracking.rjid_, ClientStep::DoingIt, ClientBaseClass::Status::InProgress,
+                             I18NInProgress()
     );
     // ... accepted ...
     o_response.code_ = CC_STATUS_CODE_OK;

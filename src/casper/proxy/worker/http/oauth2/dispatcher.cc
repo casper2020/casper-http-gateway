@@ -26,7 +26,7 @@
  * @brief Default constructor.
  *
  * @param a_loggable_data Logging data params.
- * @param a_user_aget     HTTP User-Agent header value.
+ * @param a_user_agent    HTTP User-Agent header value.
  * param a_thread_id      For debug purposes only
  */
 casper::proxy::worker::http::oauth2::Dispatcher::Dispatcher (const ev::Loggable::Data& a_loggable_data,
@@ -49,7 +49,7 @@ casper::proxy::worker::http::oauth2::Dispatcher::~Dispatcher ()
 /**
  * @brief One-shot call setup.
  *
- * @param a_config JSON object with required config.
+ * param a_config JSON object with required config.
  */
 void casper::proxy::worker::http::oauth2::Dispatcher::Setup (const Json::Value& /* a_config */)
 {

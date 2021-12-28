@@ -180,7 +180,6 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleLoadTokens (const bo
                     allow_oauth2_restart_ = arguments().parameters().config_.oauth2_.grant_.auto_;
                     break;
                 default:
-                    allow_oauth2_restart_ = true;
                     break;
             }
             // ... just perform request ...
@@ -521,23 +520,27 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted (cons
     if ( false == acceptable ) {
         switch(current_) {
             case Deferred::Operation::LoadTokens:
-                // ... no tokens available ...
-                acceptable = ( CC_EASY_HTTP_NOT_FOUND == response_.code() );
-                // ... obtain new pair? ( no need to add save tokens operation - it will be added upon success )
-                if ( 0 == arguments_->parameters().tokens().access_.size() && true == acceptable && true == allow_oauth2_restart_ ) {
+                // ... no tokens available, auto restart ...
+                if ( true == allow_oauth2_restart_ && 0 == arguments_->parameters().tokens().access_.size() ) {
+                    // ... reset acceptable flag ...
+                    acceptable = ( CC_EASY_HTTP_NOT_FOUND == response_.code() );
+                    // ... obtain new pair, ( no need to add save tokens operation - it will be added upon success )
                     operations_.insert(operations_.begin(), Deferred::Operation::RestartOAuth2);
                 }
                 break;
             case Deferred::Operation::PerformRequest:
                 // ... tokens renewal problem ( refresh absent or expired ) ...
-                acceptable = ( CC_EASY_HTTP_UNAUTHORIZED == response_.code() );
-                if ( true == acceptable && true == allow_oauth2_restart_ ) {
-                    // ... forget all operations ...
-                    operations_.clear();
-                    // ... obtain new pair ( no need to add save tokens operation - it will be added upon success ) ...
-                    operations_.push_back(Deferred::Operation::RestartOAuth2);
-                    // ... replay failed request ...
-                    operations_.push_back(Deferred::Operation::PerformRequest);
+                if ( true == allow_oauth2_restart_ ) {
+                    // ... reset acceptable flag ...
+                    acceptable = ( CC_EASY_HTTP_UNAUTHORIZED == response_.code() );
+                    if ( true == acceptable ) {
+                        // ... forget all operations ...
+                        operations_.clear();
+                        // ... obtain new pair ( no need to add save tokens operation - it will be added upon success ) ...
+                        operations_.push_back(Deferred::Operation::RestartOAuth2);
+                        // ... replay failed request ...
+                        operations_.push_back(Deferred::Operation::PerformRequest);
+                    }
                 }
                 break;
             default:

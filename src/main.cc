@@ -47,7 +47,8 @@ int main(int argc, char** argv)
     //
     // LOG FILTERING:
     //
-    // tail -f /usr/local/var/log/casper-http-proxy/gw-oauth2-http-client.1.log
+    // tail -f /usr/local/var/log/casper-proxy-worker/oauth2-http-client.1.log
+    // tail -f /usr/local/var/log/casper-proxy-worker/http-client.1.log
     //
     // ... run ...
     return ::casper::job::Handler::GetInstance().Start(

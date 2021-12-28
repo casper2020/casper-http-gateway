@@ -43,7 +43,7 @@ const Json::Value casper::proxy::worker::http::Client::sk_behaviour_ = "default"
  * param a_config
  */
 casper::proxy::worker::http::Client::Client (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config)
-    : ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>("HC", sk_tube_, a_loggable_data, a_config, /* a_sequentiable */ false)
+    : ClientBaseClass("HC", sk_tube_, a_loggable_data, a_config, /* a_sequentiable */ false)
 {
     /* empty */
 }
@@ -92,6 +92,10 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
     // }
     bool               broker    = false;
     const Json::Value& payload   = Payload(a_payload, &broker);
+    const Json::Value& i18n     = json.Get(payload, "i18n", Json::ValueType::objectValue, &Json::Value::null);
+    if ( false == i18n.isNull() ) {
+        OverrideI18N(i18n);
+    }
     const Json::Value& behaviour = json.Get(payload, "behaviour", Json::ValueType::stringValue, &sk_behaviour_);
     const Json::Value& http      = json.Get(payload, "http"     , Json::ValueType::objectValue, nullptr);
     // ... prepare tracking info ...
@@ -188,10 +192,8 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
     // ... schedule deferred HTTP request ...
     dynamic_cast<http::Dispatcher*>(d_.dispatcher_)->Push(tracking, arguments);
     // ... publish progress ...
-    ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>::Publish(tracking.bjid_, tracking.rcid_, tracking.rjid_,
-                                                                                                  ClientStep::DoingIt,
-                                                                                                  ::casper::job::deferrable::Base<Arguments, ClientStep, ClientStep::Done>::Status::InProgress,
-                                                                                                  sk_i18n_in_progress_.key_, sk_i18n_in_progress_.arguments_
+    ClientBaseClass::Publish(tracking.bjid_, tracking.rcid_, tracking.rjid_, ClientStep::DoingIt, ClientBaseClass::Status::InProgress,
+                             I18NInProgress()
     );
     // ... accepted ...
     o_response.code_ = CC_STATUS_CODE_OK;
