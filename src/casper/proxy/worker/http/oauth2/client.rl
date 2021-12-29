@@ -553,8 +553,10 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (c
  * @brief Setup a 'grant_type' operation.
  *
  * @param a_tracking  Request tracking info.
- * @param a_payload   Job payload.
+ * @param a_provider  OAuth2 service provider config.
  * @param a_arguments HTTP args.
+ * @param a_request   Object to setup.
+ * @param o_v8_data   V8 JSON object to setup.
  */
 void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::casper::job::deferrable::Tracking& a_tracking,
                                                                      const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments,
@@ -593,8 +595,10 @@ void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::cas
  * @brief Process a 'http' operation.
  *
  * @param a_tracking  Request tracking info.
- * @param a_payload   Job payload.
+ * @param a_provider  OAuth2 service provider config.
  * @param a_arguments HTTP args.
+ * @param a_request   Object to setup.
+ * @param o_v8_data   V8 JSON object to setup.
  */
 void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casper::job::deferrable::Tracking& a_tracking,
                                                                     const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments,
