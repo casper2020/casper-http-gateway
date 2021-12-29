@@ -112,7 +112,7 @@ namespace casper
                     return a_tracking.rcid_;
                 }
             
-                DEFINE_ENUM_WITH_BITWISE_OPERATORS(Deferred::HTTPOptions);
+                DEFINE_ENUM_WITH_BITWISE_OPERATORS(Deferred::HTTPOptions)
     
             } // end of namespace 'http'
 

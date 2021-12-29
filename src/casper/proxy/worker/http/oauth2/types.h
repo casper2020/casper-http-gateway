@@ -554,7 +554,7 @@ namespace casper
                         
                     public: // Method(s) / Function(s)
                         
-                        virtual bool Primitive () const { return parameters_.primitive_; };
+                        virtual bool Primitive () const { return parameters_.primitive_; }
                         
                     }; // end of class 'Arguments'
 

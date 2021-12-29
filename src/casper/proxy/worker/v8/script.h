@@ -66,7 +66,7 @@ namespace casper
                     
                 public: // Inline Method(s) / Function(s)
                     
-                    inline const bool                  IsExceptionSet () const {                                        return nullptr != last_exception_;  };
+                    inline const bool                  IsExceptionSet () const {                                        return nullptr != last_exception_;  }
                     inline const ::cc::v8::Exception&  exception      () const { CC_ASSERT(nullptr != last_exception_); return *last_exception_;            }
           
                 }; // end of class 'Script'

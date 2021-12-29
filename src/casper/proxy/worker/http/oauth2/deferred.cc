@@ -23,6 +23,8 @@
 
 #include "cc/easy/job/types.h"
 
+#include "cc/hash/sha256.h"
+
 extern std::string ede (const std::string&);
 extern std::string edd (const std::string&);
 
@@ -158,6 +160,9 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleLoadTokens (const bo
             CallOnMainThread([this]() {
                 // ... first load tokens from db ...
                 const auto& storage = arguments_->parameters().storage();
+                (void)arguments_->parameters().storage([this](proxy::worker::http::oauth2::Parameters::Storage& a_storage) {
+                    a_storage.headers_["X-CASPER-OAUTH2-AGENT"] = { http_->user_agent() + " (" + tracking_.rjid_ + ')' };
+                });
                 http_->GET(storage.url_, storage.headers_,
                            ::cc::easy::http::Client::Callbacks({
                               /* on_success_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
@@ -233,6 +238,7 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleSaveTokens (const bo
                     }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
                 }
             }
+            ::cc::hash::SHA256 sha256;
             // ... perform save tokens ...
             const auto& tokens = arguments_->parameters().tokens();
             // ... set body ...
@@ -242,7 +248,12 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleSaveTokens (const bo
             body["refresh_token"] = ede(tokens.refresh_);
             body["expires_in"]    = static_cast<Json::UInt64>(tokens.expires_in_);
             body["scope"]         = tokens.scope_;
+            body["encrypted"]     = true;
+            body["tracking_id"]   = ::cc::hash::SHA256::Calculate((http_->user_agent() + "±" + tracking_.rjid_ + "±" + body["access_token"].asString() + "±" + body["refresh_token"].asString() + "±" + body["scope"].asString()));
             (void)arguments_->parameters().storage(::cc::easy::http::Client::Method::POST, json.Write(body));
+            (void)arguments_->parameters().storage([this](proxy::worker::http::oauth2::Parameters::Storage& a_storage) {
+                a_storage.headers_["X-CASPER-OAUTH2-AGENT"] = { http_->user_agent() + " (" + tracking_.rjid_ + ')' };
+            });
             // ... HTTP requests must be performed @ MAIN thread ...
             CallOnMainThread([this]() {
                 const auto& storage = arguments_->parameters().storage();
@@ -601,10 +612,10 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted (cons
         // ... exception: override 302 responses ...
         if ( CC_EASY_HTTP_MOVED_TEMPORARILY == a_value.code() && Deferred::Operation::RestartOAuth2 == current_ ) {
             response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, "application/json", "{\"error\":\"unsupported_response\",\"error_description\":\"302 - 302 Moved Temporarily\"}", a_value.rtt());
-        } else {
+        } else if ( true == acceptable ) {
             // ... 'main' target is 'PerformRequest' operation response ...
             const std::vector<Deferred::Operation> priority = {
-                Deferred::Operation::PerformRequest, Deferred::Operation::RestartOAuth2, Deferred::Operation::LoadTokens
+                Deferred::Operation::PerformRequest, Deferred::Operation::SaveTokens, Deferred::Operation::RestartOAuth2, Deferred::Operation::LoadTokens
             };
             for ( const auto& p : priority ) {
                 const auto it = std::find_if(responses_.begin(), responses_.end(), [&p](const std::pair<Operation, job::deferrable::Response>& a_result) {
