@@ -76,6 +76,8 @@ void casper::proxy::worker::http::oauth2::Deferred::Run (const casper::proxy::wo
         // ... log storage related requests?
         if ( a_args.parameters().log_level_ >= CC_JOB_LOG_LEVEL_DBG ) {
             http_options_ |= HTTPOptions::NonOAuth2;
+        }
+        if ( false == a_args.parameters().log_redact_ ) {
             http_options_ &= ~HTTPOptions::Redact;
         }
     }
@@ -84,13 +86,13 @@ void casper::proxy::worker::http::oauth2::Deferred::Run (const casper::proxy::wo
     // ... bind callbacks ...
     Bind(a_callbacks);
     // ... prepare HTTP client ...
-    http_oauth2_ = new ::cc::easy::http::oauth2::Client(loggable_data_, arguments_->parameters().config_,
+    http_oauth2_ = new ::cc::easy::http::oauth2::Client(loggable_data_, arguments_->parameters().config(),
                                                         arguments_->parameters().tokens([this](::cc::easy::http::oauth2::Client::Tokens& a_tokens){
                                                             a_tokens.on_change_ = std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnOAuth2TokensChanged, this);
                                                         }),
                                                         /* a_user_agent */ nullptr,
-                                                        arguments().parameters().config_.oauth2_.grant_.rfc_6749_strict_,
-                                                        arguments().parameters().config_.oauth2_.grant_.formpost_
+                                                        arguments().parameters().config().oauth2_.grant_.rfc_6749_strict_,
+                                                        arguments().parameters().config().oauth2_.grant_.formpost_
     );
     if ( HTTPOptions::NotSet != ( ( HTTPOptions::Log | HTTPOptions::Trace ) & http_options_ ) ) {
         http_oauth2_->SetcURLedCallbacks({
@@ -177,12 +179,12 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleLoadTokens (const bo
         case proxy::worker::http::oauth2::Config::Type::Storageless:
         {
             // ... since we're storageless, we're m2m ....
-            switch(arguments().parameters().config_.oauth2_.grant_.type_) {
+            switch(arguments().parameters().config().oauth2_.grant_.type_) {
                 case ::cc::easy::http::oauth2::Client::GrantType::ClientCredentials:
                     allow_oauth2_restart_ = true;
                     break;
                 case ::cc::easy::http::oauth2::Client::GrantType::AuthorizationCode:
-                    allow_oauth2_restart_ = arguments().parameters().config_.oauth2_.grant_.auto_;
+                    allow_oauth2_restart_ = arguments().parameters().config().oauth2_.grant_.auto_;
                     break;
                 default:
                     break;
@@ -244,11 +246,11 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleSaveTokens (const bo
             // ... set body ...
             const ::cc::easy::JSON<::cc::InternalServerError> json;
             Json::Value body = Json::Value(Json::ValueType::objectValue);
+            body["pe"]            = true;
             body["access_token"]  = ede(tokens.access_);
             body["refresh_token"] = ede(tokens.refresh_);
             body["expires_in"]    = static_cast<Json::UInt64>(tokens.expires_in_);
             body["scope"]         = tokens.scope_;
-            body["encrypted"]     = true;
             body["tracking_id"]   = ::cc::hash::SHA256::Calculate((http_->user_agent() + "±" + tracking_.rjid_ + "±" + body["access_token"].asString() + "±" + body["refresh_token"].asString() + "±" + body["scope"].asString()));
             (void)arguments_->parameters().storage(::cc::easy::http::Client::Method::POST, json.Write(body));
             (void)arguments_->parameters().storage([this](proxy::worker::http::oauth2::Parameters::Storage& a_storage) {
@@ -300,7 +302,7 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleAuthorization (const
     current_       = Deferred::Operation::RestartOAuth2;
     operation_str_ = "http/" + std::string(nullptr != a_origin ? a_origin : __FUNCTION__);
     // ... sanity check ...
-    const auto grant = arguments().parameters().config_.oauth2_.grant_;
+    const auto grant = arguments().parameters().config().oauth2_.grant_;
     switch(grant.type_) {
         case ::cc::easy::http::oauth2::Client::GrantType::AuthorizationCode:
         case ::cc::easy::http::oauth2::Client::GrantType::ClientCredentials:
@@ -436,7 +438,7 @@ void casper::proxy::worker::http::oauth2::Deferred::OnOAuth2TokensChanged ()
     CC_DEBUG_FAIL_IF_NOT_AT_MAIN_THREAD();
     // ... push next operation to run after this one is successfully completed ...
     if ( proxy::worker::http::oauth2::Config::Type::Storage == arguments_->parameters().type_ ) {
-        operations_.push_back(Deferred::Operation::SaveTokens);
+        operations_.insert(operations_.begin(), Deferred::Operation::SaveTokens);
     }
 }
 
@@ -455,7 +457,7 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestCompleted (cons
         std::map<std::string, std::string> headers;
         response_.Set(a_value.code(), content_type, a_value.headers_as_map(headers), a_value.body(), a_value.rtt());
     }
-    const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + '-' + CC_OBJECT_HEX_ADDR(&a_value) + operation_str_ + ( CC_EASY_HTTP_OK == response_.code() ? "-succeeded-" : "-failed-" );
+    const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + "-" + '-' + ::cc::ObjectHexAddr<::cc::easy::http::oauth2::Client::Value>(&a_value) + operation_str_ + ( CC_EASY_HTTP_OK == response_.code() ? "-succeeded-" : "-failed-" );
     // ... parse response?
     bool acceptable = ( CC_EASY_HTTP_OK == response_.code() );
     if ( ::cc::easy::JSON<::cc::InternalServerError>::IsJSON(content_type) ) {
@@ -653,7 +655,7 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError (const ::
             break;
     }
     // ... finalize ...
-    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_value) + '-' + operation_str_ + "-error-");
+    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + ::cc::ObjectHexAddr<::cc::easy::http::oauth2::Client::Error>(&a_value) + '-' + operation_str_ + "-error-");
 }
 
 /**
@@ -668,7 +670,7 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure (const 
     // ... set response ...
     response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, a_exception);
     // ... finalize ...
-    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_exception) + '-' + operation_str_ + "-failure-");
+    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + ::cc::ObjectHexAddr<::cc::Exception>(&a_exception) + '-' + operation_str_ + "-failure-");
 }
 
 // MARK: - HTTP Client Callbacks
@@ -770,7 +772,7 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestWillRunLogIt (c
         )
     ) {
         // ... must be done on 'looper' thread ...
-        const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_request) + "-log-http-oauth2-client-response";
+        const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + ::cc::ObjectHexAddr<::cc::easy::http::oauth2::Client::Request>(&a_request) + "-log-http-oauth2-client-response";
         CallOnLooperThread(tag, [this, a_data, a_options] (const std::string&) {
             // ... log?
             if ( HTTPOptions::Log == ( HTTPOptions::Log & a_options ) ) {
@@ -808,7 +810,7 @@ void casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestSteppedLogIt (c
     ) {
         const uint16_t code = a_value.code();
         // ... must be done on 'looper' thread ...
-        const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_value) + "-log-http-oauth2-step";
+        const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + ::cc::ObjectHexAddr<::cc::easy::http::oauth2::Client::Value>(&a_value) + "-log-http-oauth2-step";
         CallOnLooperThread(tag, [this, a_data, a_options, code] (const std::string&) {
             // ... log?
             if ( HTTPOptions::Log == ( HTTPOptions::Log & a_options ) ) {

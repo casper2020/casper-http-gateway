@@ -66,6 +66,9 @@ void casper::proxy::worker::http::Deferred::Run (const casper::proxy::worker::ht
         if ( a_args.parameters().log_level_ >= CC_JOB_LOG_LEVEL_DBG ) {
             http_options_ &= ~HTTPOptions::Redact;
         }
+        if ( false == a_args.parameters().log_redact_ ) {
+            http_options_ &= ~HTTPOptions::Redact;
+        }
     }
     // ... keep track of arguments and callbacks ...
     arguments_ = new casper::proxy::worker::http::Arguments(a_args);
@@ -169,7 +172,7 @@ void casper::proxy::worker::http::Deferred::OnHTTPRequestCompleted (const ::cc::
         std::map<std::string, std::string> headers;
         response_.Set(a_value.code(), content_type, a_value.headers_as_map(headers), a_value.body(), a_value.rtt());
     }
-    const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_value) + "-http-" + ( CC_EASY_HTTP_OK == response_.code() ? "-succeeded-" : "-failed-" );
+    const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + ::cc::ObjectHexAddr<::cc::easy::http::Client::Value>(&a_value) + "-http-" + ( CC_EASY_HTTP_OK == response_.code() ? "-succeeded-" : "-failed-" );
     // ... finalize ...
     Finalize(tag);
 }
@@ -195,7 +198,7 @@ void casper::proxy::worker::http::Deferred::OnHTTPRequestError (const ::cc::easy
             break;
     }
     // ... finalize ...
-    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_value) + "-http-error-");
+    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + ::cc::ObjectHexAddr<::cc::easy::http::Client::Error>(&a_value) + "-http-error-");
 }
 
 /**
@@ -210,7 +213,7 @@ void casper::proxy::worker::http::Deferred::OnHTTPRequestFailure (const ::cc::Ex
     // ... set response ...
     response_.Set(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, a_exception);
     // ... finalize ...
-    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_exception) + "-http-failure-");
+    Finalize(std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + ::cc::ObjectHexAddr<::cc::Exception>(&a_exception) + "-http-failure-");
 }
 
 // MARK: - HTTP Client Callbacks
@@ -254,7 +257,7 @@ void casper::proxy::worker::http::Deferred::OnHTTPRequestWillRunLogIt (const ::c
         ( ( HTTPOptions::Trace == ( HTTPOptions::Trace & a_options ) || ( HTTPOptions::Trace == ( HTTPOptions::Trace & http_options_ ) ) ) )
     ) {
         // ... must be done on 'looper' thread ...
-        const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_request) + "-log-http-oauth2-client-response";
+        const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + ::cc::ObjectHexAddr<::cc::easy::http::Client::Request>(&a_request) + "-log-http-oauth2-client-response";
         CallOnLooperThread(tag, [this, a_data, a_options] (const std::string&) {
             // ... log?
             if ( HTTPOptions::Log == ( HTTPOptions::Log & a_options ) ) {
@@ -286,7 +289,7 @@ void casper::proxy::worker::http::Deferred::OnHTTPRequestSteppedLogIt (const ::c
     ) {
         const uint16_t code = a_value.code();
         // ... must be done on 'looper' thread ...
-        const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + CC_OBJECT_HEX_ADDR(&a_value) + "-log-http-oauth2-step";
+        const std::string tag = std::to_string(tracking_.bjid_) + "-" + tracking_.rjid_ + '-' + ::cc::ObjectHexAddr<::cc::easy::http::Client::Value>(&a_value) + "-log-http-oauth2-step";
         CallOnLooperThread(tag, [this, a_data, a_options, code] (const std::string&) {
             // ... log?
             if ( HTTPOptions::Log == ( HTTPOptions::Log & a_options ) ) {

@@ -66,6 +66,7 @@ namespace casper
                     const Json::Value&                       data_;
                     const bool                               primitive_;
                     const int                                log_level_;
+                    const bool                               log_redact_;
                     
                 private: // Data
                     
@@ -78,12 +79,13 @@ namespace casper
                     /**
                      * @brief Default constructor.
                      *
-                     * @param a_data      JSON object.
-                     * @param a_primitive True when response should be done in 'primitive' mode.
-                     * @param a_log_level Log level.
+                     * @param a_data       JSON object.
+                     * @param a_primitive  True when response should be done in 'primitive' mode.
+                     * @param a_log_level  Log level.
+                     * @param a_log_redact Log redact flag.
                      */
-                    Parameters (const Json::Value& a_data, const bool a_primitive, const int a_log_level)
-                     : data_(a_data), primitive_(a_primitive), log_level_(a_log_level),
+                    Parameters (const Json::Value& a_data, const bool a_primitive, const int a_log_level, const bool a_log_redact)
+                     : data_(a_data), primitive_(a_primitive), log_level_(a_log_level), log_redact_(a_log_redact),
                        http_req_(nullptr)
                     {
                         /* empty */
@@ -95,7 +97,7 @@ namespace casper
                      * @param a_parameters Object to copy.
                      */
                     Parameters (const Parameters& a_parameters)
-                     : data_(a_parameters.data_), primitive_(a_parameters.primitive_), log_level_(a_parameters.log_level_),
+                     : data_(a_parameters.data_), primitive_(a_parameters.primitive_), log_level_(a_parameters.log_level_), log_redact_(a_parameters.log_redact_),
                        http_req_(nullptr)
                     {
                         if ( nullptr != a_parameters.http_req_ ) {

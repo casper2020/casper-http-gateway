@@ -111,9 +111,10 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
     // ... prepare arguments / parameters ...
     http::Arguments arguments = http::Arguments(
         {
-            /* a_data      */ http,
-            /* a_primitive */ ( true == broker && 0 == strcasecmp("gateway", behaviour.asCString()) ),
-            /* a_log_level */ config_.log_level()
+            /* a_data       */ http,
+            /* a_primitive  */ ( true == broker && 0 == strcasecmp("gateway", behaviour.asCString()) ),
+            /* a_log_level  */ config_.log_level(),
+            /* a_log_redact */ config_.log_redact()
         }
     );
     // ... set request properties ...

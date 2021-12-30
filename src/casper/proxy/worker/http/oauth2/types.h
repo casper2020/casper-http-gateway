@@ -246,13 +246,14 @@ namespace casper
                         
                         const std::string                               id_;
                         const Config::Type                              type_;
-                        const ::cc::easy::http::oauth2::Client::Config& config_;
                         const Json::Value&                              data_;
                         const bool                                      primitive_;
                         const int                                       log_level_;
+                        const bool                                      log_redact_;
                         
                     private: // Data
                         
+                        ::cc::easy::http::oauth2::Client::Config*   config_;
                         Storage*                                    storage_;       //!< Evaluated storage request data.
                         HTTPRequest*                                http_req_;      //!< Evaluated HTTP request data.
                         GrantAuthCodeRequest*                       auth_code_req_; //!< Evaludated authorization code request
@@ -264,19 +265,18 @@ namespace casper
                         /**
                          * @brief Default constructor.
                          *
-                         * @param a_id        Provider ID.
-                         * @param a_type      One of \link Config::Type \link.
-                         * @param a_config    Ref to R/O config.
-                         * @param a_data      JSON object.
-                         * @param a_primitive True when response should be done in 'primitive' mode.
-                         * @param a_log_level Log level.
+                         * @param a_id         Provider ID.
+                         * @param a_type       One of \link Config::Type \link.
+                         * @param a_data       JSON object.
+                         * @param a_primitive  True when response should be done in 'primitive' mode.
+                         * @param a_log_level  Log level.
+                         * @param a_log_redact Log redact flag.
                          */
                         Parameters (const std::string& a_id,
                                     const Config::Type a_type,
-                                    const ::cc::easy::http::oauth2::Client::Config& a_config,
-                                    const Json::Value& a_data, const bool a_primitive, const int a_log_level)
-                         : id_(a_id), type_(a_type), config_(a_config), data_(a_data), primitive_(a_primitive), log_level_(a_log_level),
-                           storage_(nullptr), http_req_(nullptr), auth_code_req_(nullptr)
+                                    const Json::Value& a_data, const bool a_primitive, const int a_log_level, const bool a_log_redact)
+                         : id_(a_id), type_(a_type), data_(a_data), primitive_(a_primitive), log_level_(a_log_level), log_redact_(a_log_redact),
+                            config_(nullptr), storage_(nullptr), http_req_(nullptr), auth_code_req_(nullptr)
                         {
                             /* empty */
                         }
@@ -287,9 +287,12 @@ namespace casper
                          * @param a_parameters Object to copy.
                          */
                         Parameters (const Parameters& a_parameters)
-                         : id_(a_parameters.id_), type_(a_parameters.type_), config_(a_parameters.config_), data_(a_parameters.data_), primitive_(a_parameters.primitive_), log_level_(a_parameters.log_level_),
-                           storage_(nullptr), http_req_(nullptr), auth_code_req_(nullptr)
+                         : id_(a_parameters.id_), type_(a_parameters.type_), data_(a_parameters.data_), primitive_(a_parameters.primitive_), log_level_(a_parameters.log_level_), log_redact_(a_parameters.log_redact_),
+                            config_(nullptr), storage_(nullptr), http_req_(nullptr), auth_code_req_(nullptr)
                         {
+                            if ( nullptr != a_parameters.config_ ) {
+                                config_ = new ::cc::easy::http::oauth2::Client::Config(*a_parameters.config_);
+                            }
                             if ( nullptr != a_parameters.storage_ ) {
                                 storage_ = new Storage(*a_parameters.storage_);
                             }
@@ -306,6 +309,9 @@ namespace casper
                          */
                         virtual ~Parameters ()
                         {
+                            if ( nullptr != config_) {
+                                delete config_;
+                            }
                             if ( nullptr != storage_ ) {
                                 delete storage_;
                             }
@@ -322,6 +328,37 @@ namespace casper
                         void operator = (Parameters const&)  = delete;  // assignment is not allowed
 
                     public: // Inline Method(s) / Function(s)
+                        
+                        /**
+                         * @return R/O access to OAuth2 configs.
+                         */
+                        inline const ::cc::easy::http::oauth2::Client::Config& config () const
+                        {
+                            if ( nullptr == config_ ) {
+                                throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                            }
+                            // ... done ...
+                            return *config_;
+                        }
+                        
+                        /**
+                         * @brief Prepare OAuth2 config, exception for better tracking of variables write acccess.
+                         *
+                         * @return R/O access to OAuth2 configs.
+                         */
+                        inline const ::cc::easy::http::oauth2::Client::Config& config (const ::cc::easy::http::oauth2::Client::Config& a_config,
+                                                                                       const std::function<void(::cc::easy::http::oauth2::Client::Config&)>& a_callback)
+                        {
+                            // ... if doesn't exists yet ...
+                            if ( nullptr == storage_ ) {
+                                // ... create it now ...
+                                config_ = new ::cc::easy::http::oauth2::Client::Config(a_config);
+                            }
+                            // ... callback ...
+                            a_callback(*config_);
+                            // ... done ...
+                            return *config_;
+                        }
                         
                         /**
                          * @return R/O access to storage configs.

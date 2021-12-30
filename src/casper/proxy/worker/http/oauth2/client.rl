@@ -252,7 +252,6 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     const Json::Value& what_obj = json.Get(payload, what_ref.asCString(), Json::ValueType::objectValue, &Json::Value::null);
     
     const Json::Value& purpose  = json.Get(payload, "purpose", Json::ValueType::stringValue, &provider_it->second->storage().arguments_["purpose"]);
-    const Json::Value& scope    = json.Get(payload, "scope"  , Json::ValueType::stringValue, &provider_it->second->storage().arguments_["scope"]);
 
     // ... prepare tracking info ...
     const ::casper::job::deferrable::Tracking tracking = {
@@ -267,18 +266,26 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     // ... prepare arguments / parameters ...
     casper::proxy::worker::http::oauth2::Arguments arguments = casper::proxy::worker::http::oauth2::Arguments(
         {
-            /* a_id        */ provider_it->first,
-            /* a_type      */ provider_it->second->type_,
-            /* a_config    */ provider_it->second->http_,
-            /* a_data      */ what_obj,
-            /* a_primitive */ ( true == broker && 0 == strcasecmp("gateway", behaviour.asCString()) ),
-            /* a_log_level */ config_.log_level()
+            /* a_id         */ provider_it->first,
+            /* a_type       */ provider_it->second->type_,
+            /* a_data       */ what_obj,
+            /* a_primitive  */ ( true == broker && 0 == strcasecmp("gateway", behaviour.asCString()) ),
+            /* a_log_level  */ config_.log_level(),
+            /* a_log_redact */ config_.log_redact()
         }
     );
+    
+    // ... patch OAuth2 'scope' field ...
+    arguments.parameters().config(provider_it->second->http_, [&json, &payload, &provider_it] (::cc::easy::http::oauth2::Client::Config& config) {
+        config.oauth2_.scope_ = json.Get(payload, "scope", Json::ValueType::stringValue, &provider_it->second->storage().arguments_["scope"]).asString();
+    });
     
     const auto& provider_cfg = *provider_it->second;
     // ... set v8 data ...
     Json::Value v8_data = payload;
+    // ... set 'purpose' and 'scope' ...
+    v8_data["purpose"] = purpose;
+    v8_data["scope"  ] = arguments.parameters().config().oauth2_.scope_;
     //
     // COMMON
     //
@@ -298,7 +305,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     //
     // STORAGE
     //
-    const auto set_storage = [this, &tracking, &arguments, &purpose, &scope, &provider_cfg, &v8_data] (::cc::easy::http::oauth2::Client::Tokens* o_tokens) {
+    const auto set_storage = [this, &tracking, &arguments, provider_cfg, &v8_data] (::cc::easy::http::oauth2::Client::Tokens* o_tokens) {
         // ... storageless?
         if ( proxy::worker::http::oauth2::Config::Type::Storageless == arguments.parameters().type_ ) {
             // ... copy latest tokens available?..
@@ -317,9 +324,6 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
                     }
                 }
             }
-            // ... overload 'purpose' and 'scope' ...
-            v8_data["purpose"] = purpose;
-            v8_data["scope"  ] = scope;
             // ... setup load/save tokens ...
             arguments.parameters().storage([&, this](proxy::worker::http::oauth2::Parameters::Storage& a_storage){
                 // ... copy config headers ...
@@ -583,6 +587,11 @@ void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::cas
     const Json::Value& scope = json.Get(a_arguments.parameters().data_, "scope", Json::ValueType::stringValue, &Json::Value::null);
     if ( false == scope.isNull() ) {
         a_request.scope_ = scope.asString();
+        if ( 0 != a_request.scope_.compare(a_arguments.parameters().config().oauth2_.scope_) ) {
+            throw ::cc::BadRequest("OAuth2 grant scope '%s' does not match service scope '%s'!", a_request.scope_.c_str(), a_arguments.parameters().config().oauth2_.scope_.c_str());
+        }
+    } else {
+        a_request.scope_ = a_arguments.parameters().config().oauth2_.scope_;
     }
     const Json::Value& state = json.Get(a_arguments.parameters().data_, "state", Json::ValueType::stringValue, &Json::Value::null);
     if ( false == state.isNull() ) {
@@ -769,7 +778,7 @@ void casper::proxy::worker::http::oauth2::Client::Evaluate (const uint64_t& a_id
         // ... evaluate it now ...
         if ( 0 != expression.length() ) {
             // ... patch data ...
-            Json::Value data = a_data; data["__instance__"] = CC_OBJECT_HEX_ADDR(script_);
+            Json::Value data = a_data; data["__instance__"] = ::cc::ObjectHexAddr<casper::proxy::worker::v8::Script>(script_);
             // ... evaluate it now ...
             Evaluate((std::to_string(a_id) + "-v8-data"), expression, data, o_value);
         } else {

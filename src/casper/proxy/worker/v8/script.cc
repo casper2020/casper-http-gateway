@@ -119,7 +119,7 @@ void casper::proxy::worker::v8::Script::TryCall (const std::function<void(const 
             return;
         }
         // ... from now on we can throw exceptions ...
-        instance = CC_OBJECT_FROM_HEX_ADDR((*::v8::String::Utf8Value(a_args.GetIsolate(), a_args[0])), casper::proxy::worker::v8::Script);
+        instance = ::cc::ObjectFromHexAddr<casper::proxy::worker::v8::Script>((*::v8::String::Utf8Value(a_args.GetIsolate(), a_args[0])));
         if ( nullptr != instance->last_exception_ ){
             delete instance->last_exception_;
             instance->last_exception_ = nullptr;
