@@ -31,6 +31,8 @@
 
 #include "cc/v8/exception.h"
 
+#include <string.h> // strtok
+
 const char* const casper::proxy::worker::http::oauth2::Client::sk_tube_      = "oauth2-http-client";
 const Json::Value casper::proxy::worker::http::oauth2::Client::sk_behaviour_ = "default";
 const casper::proxy::worker::http::oauth2::Client::RejectedHeadersSet casper::proxy::worker::http::oauth2::Client::sk_rejected_headers_ = {
@@ -46,7 +48,7 @@ const casper::proxy::worker::http::oauth2::Client::RejectedHeadersSet casper::pr
 casper::proxy::worker::http::oauth2::Client::Client (const ev::Loggable::Data& a_loggable_data, const cc::easy::job::Job::Config& a_config)
     : ClientBaseClass("OHC", sk_tube_, a_loggable_data, a_config, /* a_sequentiable */ false)
 {
-    script_ = nullptr;
+    /* empty */
 }
 
 /**
@@ -58,9 +60,6 @@ casper::proxy::worker::http::oauth2::Client::~Client ()
         delete it.second;
     }
     providers_.clear();
-    if ( nullptr != script_ ) {
-        delete script_;
-    }
 }
 
 /**
@@ -190,7 +189,20 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                 } else {
                     throw ::cc::InternalServerError("Unknown provider type '%s'!", type_ref.asCString());
                 }
+                // ... v8 script ...
+                if ( false == signing.isNull() && true == signing.isMember("output_format") ) {
+                    const Json::Value& sign_out_fmt = json.Get(signing, "output_format", Json::ValueType::stringValue, nullptr);
+                    // ... load script ...
+                    p_config->script(/* a_owner */ tube_, /* a_name */ config_.log_token(), /* a_uri */ "thin air", /* a_out_path */ logs_directory(), TranslatedSignOutputFormat(sign_out_fmt.asString()))
+                                .Load(/* a_external_scripts */ Json::Value::null, /* a_expressions */ {});
+                } else {
+                    // ... load script ...
+                    p_config->script(/* a_owner */ tube_, /* a_name */ config_.log_token(), /* a_uri */ "thin air", /* a_out_path */ logs_directory(), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648)
+                                .Load(/* a_external_scripts */ Json::Value::null, /* a_expressions */ {});
+                }
+                // ... save it ...
                 providers_[name] = p_config;
+                // ... forget it ...
                 p_config = nullptr;
             } catch (...) {
                 if ( nullptr != p_config ) {
@@ -199,13 +211,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                 ::cc::Exception::Rethrow(/* a_unhandled */ false, __FILE__, __LINE__, __FUNCTION__);
             }
         }
-    }
-    // ... prepare v8 simple expression evaluation script ...
-    script_ = new casper::proxy::worker::v8::Script(/* a_owner */ tube_, /* a_name */ config_.log_token(),
-                                                     /* a_uri */ "thin air", /* a_out_path */ logs_directory()
-    );
-    // ... load it now ...
-    script_->Load(/* a_external_scripts */ Json::Value::null, /* a_expressions */ {});
+    }    
     // ... for debug purposes only ...
     CC_DEBUG_LOG_PRINT("dump-config", "----\n%s----\n", config.toStyledString().c_str());
 }
@@ -275,12 +281,22 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
         }
     );
     
-    // ... patch OAuth2 'scope' field ...
-    arguments.parameters().config(provider_it->second->http_, [&json, &payload, &provider_it] (::cc::easy::http::oauth2::Client::Config& config) {
-        config.oauth2_.scope_ = json.Get(payload, "scope", Json::ValueType::stringValue, &provider_it->second->storage().arguments_["scope"]).asString();
-    });
-    
     const auto& provider_cfg = *provider_it->second;
+    
+    auto& script = provider_it->second->script();
+    
+    // ... patch OAuth2 'scope' field ...
+    arguments.parameters().config(provider_it->second->http_, [this, &json, &arguments, &provider_it] (::cc::easy::http::oauth2::Client::Config& config) {
+        // ... default scope(s) ...
+        config.oauth2_.scope_ = json.Get(provider_it->second->storage().arguments_, "scope", Json::ValueType::stringValue, nullptr).asString();
+        // ... requested specific scope?
+        const Json::Value& scope = json.Get(arguments.parameters().data_, "scope", Json::ValueType::stringValue, &Json::Value::null);
+        if ( false == scope.isNull() ) {
+            ValidateScopes(scope.asString(), arguments.parameters().config().oauth2_.scope_);
+            config.oauth2_.scope_ = scope.asString();
+        }
+    });
+        
     // ... set v8 data ...
     Json::Value v8_data = payload;
     // ... set 'purpose' and 'scope' ...
@@ -305,7 +321,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     //
     // STORAGE
     //
-    const auto set_storage = [this, &tracking, &arguments, provider_cfg, &v8_data] (::cc::easy::http::oauth2::Client::Tokens* o_tokens) {
+    const auto set_storage = [this, &tracking, &arguments, provider_cfg, &v8_data, &script] (::cc::easy::http::oauth2::Client::Tokens* o_tokens) {
         // ... storageless?
         if ( proxy::worker::http::oauth2::Config::Type::Storageless == arguments.parameters().type_ ) {
             // ... copy latest tokens available?..
@@ -325,21 +341,21 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
                 }
             }
             // ... setup load/save tokens ...
-            arguments.parameters().storage([&, this](proxy::worker::http::oauth2::Parameters::Storage& a_storage){
+            arguments.parameters().storage([&, this](proxy::worker::http::oauth2::Parameters::Storage& a_storage) {
                 // ... copy config headers ...
                 a_storage.headers_ = storage_cfg.headers_;
                 // ... override and / or merge headers?
                 for ( const auto& header : a_storage.headers_ ) {
                     auto& vector = a_storage.headers_[header.first];
                     for ( size_t idx = 0 ; idx < header.second.size() ; ++idx ) {
-                        Evaluate(tracking.bjid_, header.second[idx], v8_data, vector[idx]);
+                        Evaluate(tracking.bjid_, header.second[idx], v8_data, vector[idx], script);
                     }
                 }
                 a_storage.headers_["Content-Type"] = { "application/json; charset=utf-8" };
                 // ... URL V8(ing) ?
                 const std::string url = storage_cfg.endpoints_.tokens_;
                 if ( nullptr != strchr(url.c_str(), '$') ) {
-                    Evaluate(tracking.bjid_, url, v8_data, a_storage.url_);
+                    Evaluate(tracking.bjid_, url, v8_data, a_storage.url_, script);
                 } else {
                     a_storage.url_ = url;
                 }
@@ -360,13 +376,13 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
             SetupGrantRequest(tracking, provider_cfg, arguments, auth_code, v8_data);
         });
     } else if ( 0 == strcasecmp(what_ref.asCString(), "http") ) {
-        (void)arguments.parameters().http_request([this, &set_timeouts, &set_storage, &json, tracking, &provider_cfg, &arguments, &v8_data](proxy::worker::http::oauth2::Parameters::HTTPRequest& request) {
+        (void)arguments.parameters().http_request([this, &set_timeouts, &set_storage, &json, tracking, &provider_cfg, &arguments, &v8_data, &script](proxy::worker::http::oauth2::Parameters::HTTPRequest& request) {
             // ... set timeouts ...
             set_timeouts(json.Get(arguments.parameters().data_, "timeouts", Json::ValueType::objectValue, &Json::Value::null), request.timeouts_);
             // ... set storage ...
             set_storage(&request.tokens_);
             // .. set request ...
-            SetupHTTPRequest(tracking, provider_cfg, arguments, request, v8_data);
+            SetupHTTPRequest(tracking, provider_cfg, arguments, request, script, v8_data);
         });
     } else { // ... WTF?
         throw ::cc::BadRequest("Don't know how to process '%s' - unknown operation!", what_ref.asCString());
@@ -520,6 +536,13 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (c
 
 // MARK:  - Method(s) / Function(s) - Schedule Helper(s)
 
+/**
+ * @brief Translate a 'Grant Type' value to an enum value.
+ *
+ * @param a_name 'Grant Type' value.
+ *
+ * @return One of \link oauth2::Client::GrantType \link.
+ */
 ::cc::easy::http::oauth2::Client::GrantType casper::proxy::worker::http::oauth2::Client::TranslatedGrantType (const std::string& a_name)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
@@ -554,6 +577,46 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (c
 }
 
 /**
+ * @brief Translate a 'signature output format' to an enum value.
+ *
+ * @param a_name 'Signature output format' value.
+ *
+ * @return One of \link ::cc::crypto::RSA::SignOutputFormat \link.
+ */
+::cc::crypto::RSA::SignOutputFormat casper::proxy::worker::http::oauth2::Client::TranslatedSignOutputFormat (const std::string& a_name)
+{
+    const ::cc::easy::JSON<::cc::BadRequest> json;
+    ::cc::crypto::RSA::SignOutputFormat format = ::cc::crypto::RSA::SignOutputFormat::NotSet;
+    {
+        CC_RAGEL_DECLARE_VARS(grant_type, a_name.c_str(), a_name.length());
+        CC_DIAGNOSTIC_PUSH();
+        CC_DIAGNOSTIC_IGNORED("-Wunreachable-code");
+        %%{
+            machine SignOutputFormatMachine;
+            main := |*
+                /url_unpadded/i => { format = ::cc::crypto::RSA::SignOutputFormat::BASE64_URL_UNPADDED; };
+                /rfc4648/i      => { format = ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648;      };
+            *|;
+            write data;
+            write init;
+            write exec;
+        }%%
+        CC_RAGEL_SILENCE_VARS(SignOutputFormat)
+        CC_DIAGNOSTIC_POP();
+    }
+    // ... process ...
+    switch(format) {
+        case ::cc::crypto::RSA::SignOutputFormat::BASE64_URL_UNPADDED:
+        case ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648:
+            break;
+        default:
+            throw ::cc::NotImplemented("OAuth2 grant type '%s' not implemented // not supported!", a_name.c_str());
+    }
+    // ... done ...
+    return format;
+}
+
+/**
  * @brief Setup a 'grant_type' operation.
  *
  * @param a_tracking  Request tracking info.
@@ -583,20 +646,14 @@ void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::cas
     if ( type != a_provider.http_.oauth2_.grant_.type_ ) {
         throw ::cc::NotImplemented("OAuth2 grant type '%s' not supported for this provider!", type_str.c_str());
     }
-    // ... setup ...
-    const Json::Value& scope = json.Get(a_arguments.parameters().data_, "scope", Json::ValueType::stringValue, &Json::Value::null);
-    if ( false == scope.isNull() ) {
-        a_request.scope_ = scope.asString();
-        if ( 0 != a_request.scope_.compare(a_arguments.parameters().config().oauth2_.scope_) ) {
-            throw ::cc::BadRequest("OAuth2 grant scope '%s' does not match service scope '%s'!", a_request.scope_.c_str(), a_arguments.parameters().config().oauth2_.scope_.c_str());
-        }
-    } else {
-        a_request.scope_ = a_arguments.parameters().config().oauth2_.scope_;
-    }
+    // ... scope ...
+    a_request.scope_ = a_arguments.parameters().config().oauth2_.scope_;
+    // ... state ...
     const Json::Value& state = json.Get(a_arguments.parameters().data_, "state", Json::ValueType::stringValue, &Json::Value::null);
     if ( false == state.isNull() ) {
         a_request.state_ = state.asString();
     }
+    // ... code ...
     a_request.value_ = json.Get(a_arguments.parameters().data_, "code", Json::ValueType::stringValue, nullptr).asString();
 }
 
@@ -607,11 +664,13 @@ void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::cas
  * @param a_provider  OAuth2 service provider config.
  * @param a_arguments HTTP args.
  * @param a_request   Object to setup.
+ * @param a_script    V8 script instance to use.
  * @param o_v8_data   V8 JSON object to setup.
  */
 void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casper::job::deferrable::Tracking& a_tracking,
                                                                     const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments,
                                                                     casper::proxy::worker::http::oauth2::Parameters::HTTPRequest& a_request,
+                                                                    casper::proxy::worker::v8::Script& a_script,
                                                                     Json::Value& o_v8_data)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
@@ -660,6 +719,14 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
         }
     }
     o_v8_data["body"] = a_request.body_;
+    // ... URL V8(ing)?
+    const std::string url = url_ref.asString();
+    if ( nullptr != strchr(url.c_str(), '$') ) {
+        Evaluate(a_tracking.bjid_, url, o_v8_data, a_request.url_, a_script);
+    } else {
+        a_request.url_ = url;
+    }
+    o_v8_data["url"] = a_request.url_;
     // ... headers ...
     {
         if ( false == http.isMember("headers") ) {
@@ -689,7 +756,7 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
                     a_request.headers_[header.first].push_back("");
                 }
                 auto& last = a_request.headers_[header.first][a_request.headers_[header.first].size() - 1];
-                Evaluate(a_tracking.bjid_, v, o_v8_data, last);
+                Evaluate(a_tracking.bjid_, v, o_v8_data, last, a_script);
                 o_v8_data["headers"][header.first] = last;
             }
         }
@@ -703,7 +770,7 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
                         a_request.headers_[header.first].push_back("");
                     }
                     auto& last = a_request.headers_[header.first][a_request.headers_[header.first].size() - 1];
-                    Evaluate(a_tracking.bjid_, v, o_v8_data, last);
+                    Evaluate(a_tracking.bjid_, v, o_v8_data, last, a_script);
                     o_v8_data["headers"][header.first] = last;
                 }
             }
@@ -718,13 +785,6 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
             }
         }
     }
-    // ... URL V8(ing)?
-    const std::string url = url_ref.asString();
-    if ( nullptr != strchr(url.c_str(), '$') ) {
-        Evaluate(a_tracking.bjid_, url, o_v8_data, a_request.url_);
-    } else {
-        a_request.url_ = url;
-    }
 }
 
 // MARK: - Method(s) / Function(s) - V8 Helper(s)
@@ -736,8 +796,10 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
  * @param a_expression Expression to evaluate.
  * @param a_data       Data to load ( to be used during expression evaluation ).
  * @param o_value      Evaluation result.
+ * @param a_script     V8 script instance to use.
  */
-void casper::proxy::worker::http::oauth2::Client::Evaluate (const uint64_t& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const
+void casper::proxy::worker::http::oauth2::Client::Evaluate (const uint64_t& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value,
+                                                            casper::proxy::worker::v8::Script& a_script) const
 {
     const std::set<std::string> k_evaluation_map_ = {
         "$.", "NowUTCISO8601(", "RSASignSHA256("
@@ -764,13 +826,23 @@ void casper::proxy::worker::http::oauth2::Client::Evaluate (const uint64_t& a_id
             const std::set<std::string> k_addressable_func_map_ = {
                 "NowUTCISO8601(", "RSASignSHA256("
             };
+            // ... patch ...
             for ( const auto& it : k_addressable_func_map_ ) {
-                if ( a_expression.length() >= it.length() && 0 == strncmp(a_expression.c_str(), it.c_str(), it.length()) ) {
-                    if ( ')' != a_expression.c_str()[a_expression.length() - 1] ) {
-                        expression = it + "$.__instance__, " + ( a_expression.c_str() + it.length() );
-                    } else {
-                        expression = it + "$.__instance__" + ( a_expression.c_str() + it.length() );
+                // ... match?
+                if ( a_expression.length() >= it.length() ) {
+                    // ... yes ...
+                    const char* ptr = strstr(a_expression.c_str(), it.c_str());
+                    if ( nullptr == ptr ) {
+                        continue;
                     }
+                    expression  = std::string(a_expression.c_str(), ptr - a_expression.c_str() + it.length());
+                    expression += "$.__instance__";
+                    const char* nxt = ptr + it.length();
+                    if ( ')' != nxt[0] ) {
+                        expression += ',';
+                    }
+                    expression += std::string(nxt);
+                    // ... done ...
                     break;
                 }
             }
@@ -778,12 +850,12 @@ void casper::proxy::worker::http::oauth2::Client::Evaluate (const uint64_t& a_id
         // ... evaluate it now ...
         if ( 0 != expression.length() ) {
             // ... patch data ...
-            Json::Value data = a_data; data["__instance__"] = ::cc::ObjectHexAddr<casper::proxy::worker::v8::Script>(script_);
+            Json::Value data = a_data; data["__instance__"] = ::cc::ObjectHexAddr<casper::proxy::worker::v8::Script>(&a_script);
             // ... evaluate it now ...
-            Evaluate((std::to_string(a_id) + "-v8-data"), expression, data, o_value);
+            Evaluate((std::to_string(a_id) + "-v8-data"), expression, data, o_value, a_script);
         } else {
             // ... no patch needed, evaluate it now ...
-            Evaluate((std::to_string(a_id) + "-v8-data"), a_expression, a_data, o_value);
+            Evaluate((std::to_string(a_id) + "-v8-data"), a_expression, a_data, o_value, a_script);
         }
     } catch (const ::cc::v8::Exception& a_v8_exception) {
         if ( nullptr == strstr(a_v8_exception.what(), a_expression.c_str()) ) {
@@ -801,21 +873,23 @@ void casper::proxy::worker::http::oauth2::Client::Evaluate (const uint64_t& a_id
  * @param a_expression Expression to evaluate.
  * @param a_data       Data to load ( to be used during expression evaluation ).
  * @param o_value      Evaluation result.
+ * @param a_script     V8 script instance to use.
  */
-void casper::proxy::worker::http::oauth2::Client::Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const
+void casper::proxy::worker::http::oauth2::Client::Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value,
+                                                            casper::proxy::worker::v8::Script& a_script) const
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
     
     ::v8::Persistent<::v8::Value> v8_value; ::cc::v8::Value cc_value;
-    script_->SetData(/* a_name  */ a_id.c_str(),
+    a_script.SetData(/* a_name  */ a_id.c_str(),
                      /* a_data   */ json.Write(a_data).c_str(),
                      /* o_object */ nullptr,
                      /* o_value  */ &v8_value,
                      /* a_key    */ nullptr
     );
-    script_->Evaluate(v8_value, a_expression, cc_value);
-    if ( true == script_->IsExceptionSet() ) {
-        throw ::cc::BadRequest("%s", script_->exception().what());
+    a_script.Evaluate(v8_value, a_expression, cc_value);
+    if ( true == a_script.IsExceptionSet() ) {
+        throw ::cc::BadRequest("%s", a_script.exception().what());
     }
     switch(cc_value.type()) {
         case ::cc::v8::Value::Type::Int32:
@@ -826,5 +900,35 @@ void casper::proxy::worker::http::oauth2::Client::Evaluate (const std::string& a
             break;
         default:
             throw ::cc::BadRequest("Unexpected // unsupported v8 evaluation ( of %s ), result type %u ", a_expression.c_str(), cc_value.type());
+    }
+}
+
+/**
+ * @brief Validate requested scopes(s) against configured ones.
+ *
+ * @param a_request List of requested scopes.
+ * @param a_request List of allowed scopes.
+ */
+void casper::proxy::worker::http::oauth2::Client::ValidateScopes (const std::string& a_requested, const std::string& a_allowed) const
+{
+    std::map<const std::string*, std::set<std::string>> map = {
+        { &a_requested, {} },
+        { &a_allowed  , {} }
+    };
+    for ( auto& it : map ) {
+        std::istringstream    stream(*it.first);
+        std::string           word;
+        while ( std::getline(stream, word, ' ') ) {
+            if ( 0 != word.length() ) {
+                it.second.insert(word);
+            }
+        }
+    }
+    const auto& requested = map.find(&a_requested)->second;
+    const auto& allowed   = map.find(&a_allowed)->second;
+    for ( const auto& scope : requested ) {
+        if ( allowed.end() == allowed.find(scope) ) {
+            throw ::cc::BadRequest("Requested OAuth2 grant scope '%s' is not configured!", scope.c_str());
+        }
     }
 }

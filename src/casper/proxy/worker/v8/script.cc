@@ -25,27 +25,46 @@
 
 #include "cc/types.h"
 #include "cc/utc_time.h"
-#include "cc/crypto/rsa.h"
 
 /**
  * @brief Default constructor.
  *
- * @param a_owner    Script owner.
- * @param a_name     Script name
- * @param a_uri
- * @param a_out_path Writable directory.
+ * @param a_owner                   Script owner.
+ * @param a_name                    Script name
+ * @param a_uri                     Unused.
+ * @param a_out_path                Writable directory.
+ * @param a_signature_output_format One of \link ::cc::crypto::RSA::SignOutputFormat \link.
  */
 casper::proxy::worker::v8::Script::Script (const std::string& a_owner, const std::string& a_name, const std::string& a_uri,
-                                           const std::string& a_out_path)
+                                           const std::string& a_out_path,
+                                           const ::cc::crypto::RSA::SignOutputFormat a_signature_output_format)
 : ::cc::v8::basic::Evaluator(a_owner, a_name, a_uri, a_out_path,
                              /* a_functions */
                              {
                                  { "NowUTCISO8601", casper::proxy::worker::v8::Script::NowUTCISO8601 },
                                  { "RSASignSHA256", casper::proxy::worker::v8::Script::RSASignSHA256 }
-                             }
-)
+                             }),
+  signature_output_format_(a_signature_output_format)
 {
     last_exception_ = nullptr;
+}
+
+/**
+ * @brief Copy constructor.
+ *
+ * @param a_script Object to copy.
+ */
+casper::proxy::worker::v8::Script::Script (const casper::proxy::worker::v8::Script& a_script)
+: ::cc::v8::basic::Evaluator(a_script.owner_, a_script.name_, a_script.uri_, a_script.out_path_,
+                             /* a_functions */
+                             {
+                                 { "NowUTCISO8601", casper::proxy::worker::v8::Script::NowUTCISO8601 },
+                                 { "RSASignSHA256", casper::proxy::worker::v8::Script::RSASignSHA256 }
+                             }
+                             ),
+  signature_output_format_(a_script.signature_output_format_)
+{
+    last_exception_ = ( nullptr != a_script.last_exception_ ? new ::cc::v8::Exception(*last_exception_) : nullptr );
 }
 
 /**
@@ -67,7 +86,7 @@ casper::proxy::worker::v8::Script::~Script ()
  */
 void casper::proxy::worker::v8::Script::NowUTCISO8601 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args)
 {
-    TryCall([] (const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>& a_args) {
+    TryCall([] (const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>& a_args, const casper::proxy::worker::v8::Script* /* a_script */) {
         a_args.GetReturnValue().Set(::v8::String::NewFromUtf8(a_args.GetIsolate(), ::cc::UTCTime::NowISO8601DateTime().c_str(), ::v8::NewStringType::kNormal).ToLocalChecked());
     }, 0, a_args);
 }
@@ -79,7 +98,7 @@ void casper::proxy::worker::v8::Script::NowUTCISO8601 (const ::v8::FunctionCallb
  */
 void casper::proxy::worker::v8::Script::RSASignSHA256 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args)
 {
-    TryCall([] (const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>& a_args) {
+    TryCall([] (const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>& a_args, const casper::proxy::worker::v8::Script* a_script) {
         
         const ::v8::String::Utf8Value& value = ::v8::String::Utf8Value(a_args.GetIsolate(), a_args[1]);
         const ::v8::String::Utf8Value& pem   = ::v8::String::Utf8Value(a_args.GetIsolate(), a_args[2]);
@@ -88,9 +107,9 @@ void casper::proxy::worker::v8::Script::RSASignSHA256 (const ::v8::FunctionCallb
         
         if ( a_args.Length() >= 3 && false == a_args[3].IsEmpty() ) {
             const ::v8::String::Utf8Value& pwd = ::v8::String::Utf8Value(a_args.GetIsolate(), a_args[3]);
-            signature = ::cc::crypto::RSA::SignSHA256((*value), (*pem), (*pwd), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648);
+            signature = ::cc::crypto::RSA::SignSHA256((*value), (*pem), (*pwd), a_script->signature_output_format_);
         } else {
-            signature = ::cc::crypto::RSA::SignSHA256((*value), (*pem), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648);
+            signature = ::cc::crypto::RSA::SignSHA256((*value), (*pem), a_script->signature_output_format_);
         }
         
         a_args.GetReturnValue().Set(::v8::String::NewFromUtf8(a_args.GetIsolate(), signature.c_str(), ::v8::NewStringType::kNormal).ToLocalChecked());
@@ -104,7 +123,7 @@ void casper::proxy::worker::v8::Script::RSASignSHA256 (const ::v8::FunctionCallb
  * @param a_function Function to call.
  * @param a_args     V8 arguments ( including function args ).
  */
-void casper::proxy::worker::v8::Script::TryCall (const std::function<void(const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>&)> a_function,
+void casper::proxy::worker::v8::Script::TryCall (const std::function<void(const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>&, const casper::proxy::worker::v8::Script*)> a_function,
                                                  const size_t a_argc, const ::v8::FunctionCallbackInfo<::v8::Value>& a_args)
 {
     casper::proxy::worker::v8::Script* instance = nullptr;
@@ -120,6 +139,9 @@ void casper::proxy::worker::v8::Script::TryCall (const std::function<void(const 
         }
         // ... from now on we can throw exceptions ...
         instance = ::cc::ObjectFromHexAddr<casper::proxy::worker::v8::Script>((*::v8::String::Utf8Value(a_args.GetIsolate(), a_args[0])));
+        if ( nullptr == instance ) {
+            throw ::cc::v8::Exception("Invalid expression evaluation: instance arg is %s", "nullptr");
+        }
         if ( nullptr != instance->last_exception_ ){
             delete instance->last_exception_;
             instance->last_exception_ = nullptr;
@@ -129,18 +151,22 @@ void casper::proxy::worker::v8::Script::TryCall (const std::function<void(const 
             throw ::cc::v8::Exception("Invalid expression evaluation: wrong number of arguments got " INT64_FMT ", expected " SIZET_FMT "!", static_cast<int64_t>(a_args.Length()), a_argc);
         }
         // ... perform call ...
-        a_function(scope, a_args);
+        a_function(scope, a_args, instance);
     } catch (const ::cc::v8::Exception& a_exception) {
         // ... track it ...
-        instance->last_exception_ = new ::cc::v8::Exception(a_exception);
+        if ( nullptr != instance ) {
+            instance->last_exception_ = new ::cc::v8::Exception(a_exception);
+        }
         // ... can't throw exceptions here ...
         a_args.GetReturnValue().SetUndefined();
     } catch (...) {
         // ... track it ...
-        try {
-            ::cc::v8::Exception::Rethrow(/* a_unhandled */ false, __FILE__, __LINE__, __FUNCTION__);
-        } catch (const ::cc::v8::Exception& a_exception) {
-            instance->last_exception_ = new ::cc::v8::Exception(a_exception);
+        if ( nullptr != instance ) {
+            try {
+                ::cc::v8::Exception::Rethrow(/* a_unhandled */ false, __FILE__, __LINE__, __FUNCTION__);
+            } catch (const ::cc::v8::Exception& a_exception) {
+                instance->last_exception_ = new ::cc::v8::Exception(a_exception);
+            }
         }
         // ... can't throw exceptions here ...
         a_args.GetReturnValue().SetUndefined();

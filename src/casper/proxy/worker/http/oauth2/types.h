@@ -29,6 +29,7 @@
 #include "cc/non-movable.h"
 
 #include "cc/easy/http/oauth2/client.h"
+#include "casper/proxy/worker/v8/script.h"
 
 #include <string>
 #include <map>
@@ -90,8 +91,9 @@ namespace casper
                         
                     private: // Data
                         
-                        Storage* storage_;         //!< storage config
+                        Storage*     storage_;     //!< storage config
                         Storageless* storageless_; //!< storageless config
+                        v8::Script*  script_;      //!< v8 script
 
                     public: // Constructor(s) / Destructor
                         
@@ -112,6 +114,7 @@ namespace casper
                         {
                             storage_     = new Storage(a_storage);
                             storageless_ = nullptr;
+                            script_      = nullptr;
                         }
 
                         /**
@@ -129,6 +132,7 @@ namespace casper
                         {
                             storage_                          = nullptr;
                             storageless_                      = new Storageless(a_storageless);
+                            script_                           = nullptr;
                             storageless_->tokens_.type_       = "";
                             storageless_->tokens_.access_     = "";
                             storageless_->tokens_.refresh_    = "";
@@ -147,6 +151,7 @@ namespace casper
                         {
                             storage_     = ( nullptr != a_config.storage_     ? new Storage(*a_config.storage_)         : nullptr );
                             storageless_ = ( nullptr != a_config.storageless_ ? new Storageless(*a_config.storageless_) : nullptr );
+                            script_      = ( nullptr != a_config.script_      ? new v8::Script(*a_config.script_)       : nullptr );
                         }
 
                         /**
@@ -159,6 +164,9 @@ namespace casper
                             }
                             if ( nullptr != storageless_ ) {
                                 delete storageless_;
+                            }
+                            if ( nullptr != script_ ) {
+                                delete script_;
                             }
                         }
                         
@@ -195,6 +203,31 @@ namespace casper
                         {
                             if ( nullptr != storageless_ ) {
                                 return *storageless_;
+                            }
+                            throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                        }
+                        
+                        /**
+                         * @brief Prepare v8 script, exception for better tracking of variables write acccess.
+                         *
+                         * @return R/W access to v8 script.
+                         */
+                        inline v8::Script& script (const std::string& a_owner, const std::string& a_name, const std::string& a_uri,
+                                                   const std::string& a_out_path, const ::cc::crypto::RSA::SignOutputFormat a_signature_output_format)
+                        {
+                            if ( nullptr == script_ ) {
+                                script_ = new casper::proxy::worker::v8::Script(a_owner, a_name, a_uri, a_out_path, a_signature_output_format);
+                            }
+                            return *script_;
+                        }
+
+                        /**
+                         * @return R/W access to v8 script.
+                         */
+                        inline v8::Script& script ()
+                        {
+                            if ( nullptr != script_ ) {
+                                return *script_;
                             }
                             throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
                         }

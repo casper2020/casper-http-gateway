@@ -31,6 +31,8 @@
 #include "cc/non-movable.h"
 #include "cc/non-copyable.h"
 
+#include "cc/crypto/rsa.h"
+
 namespace casper
 {
     
@@ -45,6 +47,10 @@ namespace casper
 
                 class Script final : public ::cc::v8::basic::Evaluator
                 {
+                    
+                private: // Const Data
+                    
+                    ::cc::crypto::RSA::SignOutputFormat signature_output_format_;
 
                 private: // Data
 
@@ -54,20 +60,23 @@ namespace casper
                     
                     Script () = delete;
                     Script (const std::string& a_owner, const std::string& a_name, const std::string& a_uri,
-                            const std::string& a_out_path);
+                            const std::string& a_out_path, const ::cc::crypto::RSA::SignOutputFormat a_signature_output_format);
+                    Script (const Script& a_script);
                     virtual ~Script ();
                     
                 private: // Static Method(s) / Function(s)
                     
                     static void NowUTCISO8601 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
                     static void RSASignSHA256 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
-                    static void TryCall       (const std::function<void(const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>&)> a_function,
+                    static void TryCall       (const std::function<void(const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>&,
+                                                                        const casper::proxy::worker::v8::Script*)> a_function,
                                                const size_t, const ::v8::FunctionCallbackInfo<::v8::Value>&);
                     
                 public: // Inline Method(s) / Function(s)
                     
                     inline const bool                  IsExceptionSet () const {                                        return nullptr != last_exception_;  }
                     inline const ::cc::v8::Exception&  exception      () const { CC_ASSERT(nullptr != last_exception_); return *last_exception_;            }
+                    inline void                        Reset          ()       { if ( nullptr != last_exception_ ) { delete last_exception_; last_exception_ = nullptr; }}
           
                 }; // end of class 'Script'
                 

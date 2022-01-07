@@ -29,6 +29,8 @@
 
 #include "casper/proxy/worker/v8/script.h"
 
+#include "cc/crypto/rsa.h"
+
 #include <string>
 #include <map>
 
@@ -82,7 +84,6 @@ namespace casper
                     private: // Data
                         
                         std::map<std::string, proxy::worker::http::oauth2::Config*> providers_;
-                        casper::proxy::worker::v8::Script*            script_;
                         
                     public: // Constructor(s) / Destructor
                         
@@ -102,19 +103,23 @@ namespace casper
                                                 
                     private: // Method(s) / Function(s) - Schedule Helper(s)
 
-                        ::cc::easy::http::oauth2::Client::GrantType TranslatedGrantType (const std::string& a_name);
+                        ::cc::easy::http::oauth2::Client::GrantType TranslatedGrantType        (const std::string& a_name);
+                        ::cc::crypto::RSA::SignOutputFormat         TranslatedSignOutputFormat (const std::string& a_name);
 
                         void SetupGrantRequest (const ::casper::job::deferrable::Tracking& a_tracking,
                                                 const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments, casper::proxy::worker::http::oauth2::Parameters::GrantAuthCodeRequest& a_auth_code,
                                                 Json::Value& o_v8_data);
                         void SetupHTTPRequest  (const ::casper::job::deferrable::Tracking& a_tracking,
                                                 const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments, casper::proxy::worker::http::oauth2::Parameters::HTTPRequest& a_request,
+                                                casper::proxy::worker::v8::Script& a_script,
                                                 Json::Value& o_v8_data);
 
                     private: // Method(s) / Function(s) - V8 Helper(s)
                         
-                        void Evaluate (const uint64_t& a_id   , const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const;
-                        void Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value) const;
+                        void Evaluate (const uint64_t& a_id   , const std::string& a_expression, const Json::Value& a_data, std::string& o_value, casper::proxy::worker::v8::Script& a_script) const;
+                        void Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value, casper::proxy::worker::v8::Script& a_script) const;
+                        
+                        void ValidateScopes (const std::string& a_requested, const std::string& a_allowed) const;
 
                     }; // end of class 'Client'
                 
