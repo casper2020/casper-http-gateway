@@ -27,14 +27,18 @@
 
 #include "cc/ragel.h"
 
+#include "cc/fs/file.h"
 #include "cc/fs/dir.h"
+#include "cc/zlib/deflate.h"
 
 #include "cc/v8/exception.h"
 
 #include <string.h> // strtok
 
-const char* const casper::proxy::worker::http::oauth2::Client::sk_tube_      = "oauth2-http-client";
-const Json::Value casper::proxy::worker::http::oauth2::Client::sk_behaviour_ = "default";
+const char* const casper::proxy::worker::http::oauth2::Client::sk_tube_         = "oauth2-http-client";
+const Json::Value casper::proxy::worker::http::oauth2::Client::sk_behaviour_    = "default";
+const Json::Value casper::proxy::worker::http::oauth2::Client::sk_tmp_validity_ = 3600; // 1h
+const Json::Value casper::proxy::worker::http::oauth2::Client::sk_tmp_url_      = ""; // none
 const casper::proxy::worker::http::oauth2::Client::RejectedHeadersSet casper::proxy::worker::http::oauth2::Client::sk_rejected_headers_ = {
     "Authorization", "User-Agent", "X-CASPER-ROLE-MASK"
 };
@@ -147,6 +151,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                         }
                     }
                 }
+                const Json::Value& tmp_config = json.Get(provider_ref, "tmp", Json::ValueType::objectValue, &Json::Value::null);
                 // ... storage or storageless?
                 if ( 0 == strcasecmp(type_ref.asCString(), "storage") ) {
                     const Json::Value& storage_ref = json.Get(provider_ref, "storage", Json::ValueType::objectValue, nullptr);
@@ -162,7 +167,11 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                         /* headers             */ headers,
                         /* headers_per_method_ */ headers_per_method,
                         /* signing_            */ signing,
-                        /* storage_            */
+                        /* tmp_config_         */ {
+                            /* validity_ */ static_cast<int64_t>(json.Get(tmp_config, "validity", Json::ValueType::intValue, &sk_tmp_validity_).asInt64()),
+                            /* base_url_ */ json.Get(tmp_config, "base_url", Json::ValueType::stringValue, &sk_tmp_url_).asString()
+                        },
+                        /* storage_ */
                         proxy::worker::http::oauth2::Config::Storage({
                             /* endpoints_ */ {
                                 /* tokens_  */ json.Get(endpoints_ref, "tokens", Json::ValueType::stringValue, nullptr).asString()
@@ -181,7 +190,11 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                         /* headers             */ headers,
                         /* headers_per_method_ */ headers_per_method,
                         /* signing_            */ signing,
-                        /* storage_            */
+                        /* tmp_config_         */ {
+                            /* validity_ */ static_cast<int64_t>(json.Get(tmp_config, "validity", Json::ValueType::intValue, &sk_tmp_validity_).asInt64()),
+                            /* base_url_ */ json.Get(tmp_config, "base_url", Json::ValueType::stringValue, &sk_tmp_url_).asString()
+                        },
+                        /* storage_ */
                         proxy::worker::http::oauth2::Config::Storageless({
                             /* headers_ */ {},
                         })
@@ -373,7 +386,9 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
             // ... set storage ...
             set_storage(nullptr);
             // ... set request ....
-            SetupGrantRequest(tracking, provider_cfg, arguments, auth_code, v8_data);
+            (void)arguments.parameters().http_response([&](proxy::worker::http::oauth2::Parameters::HTTPResponse& response){
+                SetupGrantRequest(tracking, provider_cfg, arguments, auth_code, v8_data);
+            });
         });
     } else if ( 0 == strcasecmp(what_ref.asCString(), "http") ) {
         (void)arguments.parameters().http_request([this, &set_timeouts, &set_storage, &json, tracking, &provider_cfg, &arguments, &v8_data, &script](proxy::worker::http::oauth2::Parameters::HTTPRequest& request) {
@@ -382,7 +397,9 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
             // ... set storage ...
             set_storage(&request.tokens_);
             // .. set request ...
-            SetupHTTPRequest(tracking, provider_cfg, arguments, request, script, v8_data);
+            (void)arguments.parameters().http_response([&](proxy::worker::http::oauth2::Parameters::HTTPResponse& response) {
+                SetupHTTPRequest(tracking, provider_cfg, arguments, request, script, v8_data, response);
+            });
         });
     } else { // ... WTF?
         throw ::cc::BadRequest("Don't know how to process '%s' - unknown operation!", what_ref.asCString());
@@ -445,20 +462,39 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestCompleted
         // ... data ...
         o_payload["data"] = ss.str();
     } else {
-        // ... body ...
-        if ( true == ::cc::easy::JSON<::cc::Exception>::IsJSON(response.content_type()) ) {
-            const ::cc::easy::JSON<::cc::Exception> json;
-            json.Parse(response.body(), o_payload["body"]);
+        // ...
+        if ( 200 == response.code() && 0 != a_deferred->arguments().parameters().http_response().uri_.length() ) {
+            const unsigned char* const data = reinterpret_cast<const unsigned char*>(response.body().c_str());
+            const size_t               size = response.body().size();
+            ::cc::fs::File file;
+            file.Open(a_deferred->arguments().parameters().http_response().uri_, ::cc::fs::File::Mode::Write);
+            // ... deflate it?
+            if ( true == a_deferred->arguments().parameters().http_response().deflated_ ) {
+                ::cc::zlib::Deflate deflate;
+                deflate.Do(data, size, [&file] (const unsigned char* const a_data, const size_t a_size) {
+                    file.Write(a_data, a_size);
+                });
+            } else {
+                file.Write(data, size);
+            }
+            file.Close();
+            o_payload["url"] = a_deferred->arguments().parameters().http_response().url_;
         } else {
-            o_payload["body"] = response.body();
+            // ... body ...
+            if ( true == ::cc::easy::JSON<::cc::Exception>::IsJSON(response.content_type()) ) {
+                const ::cc::easy::JSON<::cc::Exception> json;
+                json.Parse(response.body(), o_payload["body"]);
+            } else {
+                o_payload["body"] = response.body();
+            }
+            // ... headers ...
+            o_payload["headers"] = Json::Value(Json::ValueType::objectValue);
+            for ( auto header : response.headers() ) {
+                o_payload["headers"][header.first] = header.second;
+            }
+            // ... code ...
+            o_payload["code"] = response.code();
         }
-        // ... headers ...
-        o_payload["headers"] = Json::Value(Json::ValueType::objectValue);
-        for ( auto header : response.headers() ) {
-            o_payload["headers"][header.first] = header.second;
-        }
-        // ... code ...
-        o_payload["code"] = response.code();
     }
     // ... done ...
     return code;
@@ -666,12 +702,14 @@ void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::cas
  * @param a_request   Object to setup.
  * @param a_script    V8 script instance to use.
  * @param o_v8_data   V8 JSON object to setup.
+ * @param o_response  Response config object to setup.
  */
 void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casper::job::deferrable::Tracking& a_tracking,
                                                                     const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments,
                                                                     casper::proxy::worker::http::oauth2::Parameters::HTTPRequest& a_request,
                                                                     casper::proxy::worker::v8::Script& a_script,
-                                                                    Json::Value& o_v8_data)
+                                                                    Json::Value& o_v8_data,
+                                                                    casper::proxy::worker::http::oauth2::Parameters::HTTPResponse& o_response)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
 
@@ -783,6 +821,42 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
                     a_request.headers_.erase(it);
                 }
             }
+        }
+    }
+    
+    //
+    // RESPONSE config
+    //
+    const Json::Value& response_ref = json.Get(http, "response", Json::ValueType::objectValue, &Json::Value::null);
+    if ( false == response_ref.isNull() ) {
+        // ... write to file?
+        const Json::Value& to_file_ref = json.Get(response_ref, "to_file", Json::ValueType::booleanValue, &Json::Value::null);
+        if ( false == to_file_ref.isNull() && true == to_file_ref.asBool() ) {
+            // ... deflate it?
+            const Json::Value& deflated_ref = json.Get(response_ref, "deflated", Json::ValueType::booleanValue, &Json::Value::null);
+            if ( false == deflated_ref.isNull() ) {
+                o_response.deflated_ = deflated_ref.asBool();
+            }
+            // ... compression level?
+            const Json::Value& level = json.Get(response_ref, "level", Json::ValueType::intValue, &Json::Value::null);
+            if ( false == level.isNull() ) {
+                o_response.level_ = static_cast<int8_t>(level.asInt());
+            }
+            // ... read validity ...
+            const Json::Value& validity_ref = json.Get(response_ref, "validity", Json::ValueType::intValue, &Json::Value::null);
+            if ( false == validity_ref.isNull() && validity_ref.asInt64() > 0 ) {
+                o_response.validity_ = static_cast<int64_t>(validity_ref.asInt64());
+            } else {
+                o_response.validity_ = a_provider.tmp_config_.validity_;
+            }
+            // ... make unique file ...
+            ::cc::fs::File::Unique(EnsureOutputDir(o_response.validity_), /* name */ "", "ohc", o_response.uri_);
+            // ... set URL ...
+            o_response.url_ = a_provider.tmp_config_.base_url_;
+            if ( '/' != o_response.url_[o_response.url_.length() - 1] ) {
+                o_response.url_ += '/';
+            }
+            o_response.url_ += std::string(o_response.uri_.c_str() + output_dir_prefix().length());
         }
     }
 }

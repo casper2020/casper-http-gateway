@@ -78,9 +78,12 @@ namespace casper
                         
                         static           const char* const        sk_tube_;
                         static           const Json::Value        sk_behaviour_;
+                        static           const Json::Value        sk_tmp_validity_;
+                        static           const Json::Value        sk_tmp_url_;
                         static           const RejectedHeadersSet sk_rejected_headers_;
                         constexpr static const long               sk_storage_connection_timeout_ = 30;
                         constexpr static const long               sk_storage_operation_timeout_  = 60;
+                        
                     private: // Data
                         
                         std::map<std::string, proxy::worker::http::oauth2::Config*> providers_;
@@ -112,7 +115,8 @@ namespace casper
                         void SetupHTTPRequest  (const ::casper::job::deferrable::Tracking& a_tracking,
                                                 const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments, casper::proxy::worker::http::oauth2::Parameters::HTTPRequest& a_request,
                                                 casper::proxy::worker::v8::Script& a_script,
-                                                Json::Value& o_v8_data);
+                                                Json::Value& o_v8_data,
+                                                casper::proxy::worker::http::oauth2::Parameters::HTTPResponse& o_response);
 
                     private: // Method(s) / Function(s) - V8 Helper(s)
                         

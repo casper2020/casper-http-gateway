@@ -81,6 +81,11 @@ namespace casper
                         
                         typedef Json::Value Signing;
                         
+                        typedef struct {
+                            int64_t     validity_;
+                            std::string base_url_;
+                        } TMPConfig;
+                        
                     public: // Const Data
                         
                         const Type                                               type_;               //!< Config type, one of \link Type \link.
@@ -88,6 +93,7 @@ namespace casper
                         const ::cc::easy::http::oauth2::Client::Headers          headers_;            //!< additional headers per request
                         const ::cc::easy::http::oauth2::Client::HeadersPerMethod headers_per_method_; //!< additional headers per request per method
                         const Signing                                            signing_;            //!< signing configs
+                        const TMPConfig                                          tmp_config_;         //!< TMP files config.
                         
                     private: // Data
                         
@@ -106,11 +112,12 @@ namespace casper
                          * @param a_headers            Additional headers per request.
                          * @param a_headers_per_method Additional headers per request per method.
                          * @param a_signing            Signing config.
+                         * @param a_tmp_config         TMP config.
                          * @param a_storage            Storage config.
                          */
                         Config (const ::cc::easy::http::oauth2::Client::Config& a_config, const ::cc::easy::http::oauth2::Client::Headers& a_headers,
-                                const ::cc::easy::http::oauth2::Client::HeadersPerMethod& a_headers_per_method, const Signing& a_signing, const Storage& a_storage)
-                         : type_(Type::Storage), http_(a_config), headers_(a_headers), headers_per_method_(a_headers_per_method), signing_(a_signing)
+                                const ::cc::easy::http::oauth2::Client::HeadersPerMethod& a_headers_per_method, const Signing& a_signing, const TMPConfig& a_tmp_config, const Storage& a_storage)
+                         : type_(Type::Storage), http_(a_config), headers_(a_headers), headers_per_method_(a_headers_per_method), signing_(a_signing), tmp_config_(a_tmp_config)
                         {
                             storage_     = new Storage(a_storage);
                             storageless_ = nullptr;
@@ -124,11 +131,12 @@ namespace casper
                          * @param a_headers            Additional headers per request.
                          * @param a_headers_per_method Additional headers per request per method.
                          * @param a_signing            Signing config.
+                         * @param a_tmp_config         TMP config.
                          * @param a_storageless        Storageless config.
                          */
                         Config (const ::cc::easy::http::oauth2::Client::Config& a_config, const ::cc::easy::http::oauth2::Client::Headers& a_headers,
-                                const ::cc::easy::http::oauth2::Client::HeadersPerMethod& a_headers_per_method, const Signing& a_signing, const Storageless& a_storageless)
-                         : type_(Type::Storageless), http_(a_config), headers_(a_headers), headers_per_method_(a_headers_per_method), signing_(a_signing)
+                                const ::cc::easy::http::oauth2::Client::HeadersPerMethod& a_headers_per_method, const Signing& a_signing, const TMPConfig& a_tmp_config, const Storageless& a_storageless)
+                         : type_(Type::Storageless), http_(a_config), headers_(a_headers), headers_per_method_(a_headers_per_method), signing_(a_signing), tmp_config_(a_tmp_config)
                         {
                             storage_                          = nullptr;
                             storageless_                      = new Storageless(a_storageless);
@@ -147,7 +155,7 @@ namespace casper
                          * @param a_config Object to copy.
                          */
                         Config (const Config& a_config)
-                        : type_(a_config.type_), http_(a_config.http_), headers_(a_config.headers_), headers_per_method_(a_config.headers_per_method_), signing_(a_config.signing_)
+                        : type_(a_config.type_), http_(a_config.http_), headers_(a_config.headers_), headers_per_method_(a_config.headers_per_method_), signing_(a_config.signing_), tmp_config_(a_config.tmp_config_)
                         {
                             storage_     = ( nullptr != a_config.storage_     ? new Storage(*a_config.storage_)         : nullptr );
                             storageless_ = ( nullptr != a_config.storageless_ ? new Storageless(*a_config.storageless_) : nullptr );
@@ -268,6 +276,14 @@ namespace casper
                         } HTTPRequest;
                         
                         typedef struct {
+                            std::string uri_;      //!< local file URI.
+                            std::string url_;      //!< URL to access file
+                            bool        deflated_; //!< if true will deflated data will be stored
+                            int8_t      level_;    //!< ZLib ccompression level, -1...9, Z_DEFAULT_COMPRESSION ( -1 )
+                            int64_t     validity_; //!< local file validity
+                        } HTTPResponse;
+                        
+                        typedef struct {
                             std::string                                value_;    //!< authorization code value
                             std::string                                scope_;    //!< scope
                             std::string                                state_;    //!< state
@@ -289,6 +305,7 @@ namespace casper
                         ::cc::easy::http::oauth2::Client::Config*   config_;
                         Storage*                                    storage_;       //!< Evaluated storage request data.
                         HTTPRequest*                                http_req_;      //!< Evaluated HTTP request data.
+                        HTTPResponse*                               http_resp_;     //!< Evaluated HTTP response config.
                         GrantAuthCodeRequest*                       auth_code_req_; //!< Evaludated authorization code request
                         
                     public: // Constructor(s) / Destructor
@@ -309,7 +326,7 @@ namespace casper
                                     const Config::Type a_type,
                                     const Json::Value& a_data, const bool a_primitive, const int a_log_level, const bool a_log_redact)
                          : id_(a_id), type_(a_type), data_(a_data), primitive_(a_primitive), log_level_(a_log_level), log_redact_(a_log_redact),
-                            config_(nullptr), storage_(nullptr), http_req_(nullptr), auth_code_req_(nullptr)
+                            config_(nullptr), storage_(nullptr), http_req_(nullptr), http_resp_(nullptr), auth_code_req_(nullptr)
                         {
                             /* empty */
                         }
@@ -321,7 +338,7 @@ namespace casper
                          */
                         Parameters (const Parameters& a_parameters)
                          : id_(a_parameters.id_), type_(a_parameters.type_), data_(a_parameters.data_), primitive_(a_parameters.primitive_), log_level_(a_parameters.log_level_), log_redact_(a_parameters.log_redact_),
-                            config_(nullptr), storage_(nullptr), http_req_(nullptr), auth_code_req_(nullptr)
+                            config_(nullptr), storage_(nullptr), http_req_(nullptr), http_resp_(nullptr), auth_code_req_(nullptr)
                         {
                             if ( nullptr != a_parameters.config_ ) {
                                 config_ = new ::cc::easy::http::oauth2::Client::Config(*a_parameters.config_);
@@ -331,6 +348,9 @@ namespace casper
                             }
                             if ( nullptr != a_parameters.http_req_ ) {
                                 http_req_ = new HTTPRequest(*a_parameters.http_req_);
+                            }
+                            if ( nullptr != a_parameters.http_resp_ ) {
+                                http_resp_ = new HTTPResponse(*a_parameters.http_resp_);
                             }
                             if ( nullptr != a_parameters.auth_code_req_ ) {
                                 auth_code_req_ = new GrantAuthCodeRequest(*a_parameters.auth_code_req_);
@@ -350,6 +370,9 @@ namespace casper
                             }
                             if ( nullptr != http_req_ ) {
                                 delete http_req_;
+                            }
+                            if ( nullptr != http_resp_ ) {
+                                delete http_resp_;
                             }
                             if ( nullptr != auth_code_req_ ) {
                                 delete auth_code_req_;
@@ -511,6 +534,40 @@ namespace casper
                             a_callback(*http_req_);
                             // ... done ...
                             return *http_req_;
+                        }
+                        
+                        /**
+                         * @return R/O access to HTTP response config.
+                         */
+                        inline const HTTPResponse& http_response () const
+                        {
+                            if ( nullptr != http_resp_ ) {
+                                return *http_resp_;
+                            }
+                            throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                        }
+                        
+                        /**
+                         * @brief Prepare response config, exception for better tracking of variables write acccess.
+                         *
+                         * @return R/O access to response config.
+                         */
+                        inline const HTTPResponse& http_response (const std::function<void(HTTPResponse&)>& a_callback)
+                        {
+                            // ... if doesn't exists yet ...
+                            if ( nullptr == http_resp_ ) {
+                                http_resp_ = new HTTPResponse({
+                                    /* uri_      */ "",
+                                    /* url_      */ "",
+                                    /* deflated_ */ false,
+                                    /* level_    */ -1,
+                                    /* validity_ */ -1
+                                });
+                            }
+                            // ... callback ...
+                            a_callback(*http_resp_);
+                            // ... done ...
+                            return *http_resp_;
                         }
                         
                         /**
