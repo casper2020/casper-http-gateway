@@ -48,6 +48,16 @@ namespace casper
                 class Script final : public ::cc::v8::basic::Evaluator
                 {
                     
+                private: // Static Const Data
+
+                    static const char* const k_evaluate_basic_expression_func_name_;
+                    static const char* const k_evaluate_basic_expression_func_;
+
+#ifdef CC_DEBUG_ON
+                    static const char* const k_variable_dump_func_name_;
+                    static const char* const k_variable_dump_func_;
+#endif // CC_DEBUG_ON
+
                 private: // Const Data
                     
                     ::cc::crypto::RSA::SignOutputFormat signature_output_format_;
@@ -64,8 +74,13 @@ namespace casper
                     Script (const Script& a_script);
                     virtual ~Script ();
                     
+                public: // Inherited Method(s) / Function(s) - from ::cc::v8::Script
+                    
+                    virtual void Load (const Json::Value& a_external_scripts, const Expressions& a_expressions);
+                    
                 private: // Static Method(s) / Function(s)
                     
+                    static void NativeLog     (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
                     static void NowUTCISO8601 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
                     static void RSASignSHA256 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
                     static void TryCall       (const std::function<void(const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>&,

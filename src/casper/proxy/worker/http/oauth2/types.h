@@ -276,11 +276,17 @@ namespace casper
                         } HTTPRequest;
                         
                         typedef struct {
-                            std::string uri_;      //!< local file URI.
-                            std::string url_;      //!< URL to access file
-                            bool        deflated_; //!< if true will deflated data will be stored
-                            int8_t      level_;    //!< ZLib ccompression level, -1...9, Z_DEFAULT_COMPRESSION ( -1 )
-                            int64_t     validity_; //!< local file validity
+                            std::string        v8_expr_;
+                            std::set<uint16_t> if_status_code_in_;
+                        } ResponseInterceptor;
+                        
+                        typedef struct {
+                            std::string         uri_;         //!< local file URI.
+                            std::string         url_;         //!< URL to access file
+                            bool                deflated_;    //!< if true will deflated data will be stored
+                            int8_t              level_;       //!< ZLib ccompression level, -1...9, Z_DEFAULT_COMPRESSION ( -1 )
+                            int64_t             validity_;    //!< local file validity
+                            ResponseInterceptor interceptor_; //!< response interception: if set response will be intercepted via V8 expression evaluation
                         } HTTPResponse;
                         
                         typedef struct {
@@ -557,11 +563,15 @@ namespace casper
                             // ... if doesn't exists yet ...
                             if ( nullptr == http_resp_ ) {
                                 http_resp_ = new HTTPResponse({
-                                    /* uri_      */ "",
-                                    /* url_      */ "",
-                                    /* deflated_ */ false,
-                                    /* level_    */ -1,
-                                    /* validity_ */ -1
+                                    /* uri_               */ "",
+                                    /* url_               */ "",
+                                    /* deflated_          */ false,
+                                    /* level_             */ -1,
+                                    /* validity_          */ -1,
+                                    /* interceptor */ {
+                                        /* v8_expr_           */ "",
+                                        /* if_status_code_in_ */ {}
+                                    }
                                 });
                             }
                             // ... callback ...

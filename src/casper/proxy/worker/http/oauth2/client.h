@@ -122,8 +122,11 @@ namespace casper
                         
                         void Evaluate (const uint64_t& a_id   , const std::string& a_expression, const Json::Value& a_data, std::string& o_value, casper::proxy::worker::v8::Script& a_script) const;
                         void Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value, casper::proxy::worker::v8::Script& a_script) const;
+                        void Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, Json::Value& o_value, casper::proxy::worker::v8::Script& a_script) const;
                         
                         void ValidateScopes (const std::string& a_requested, const std::string& a_allowed) const;
+                        
+                        void InterceptResponse (const ::casper::job::deferrable::Deferred<casper::proxy::worker::http::oauth2::Arguments>* a_deferred);
 
                     }; // end of class 'Client'
                 

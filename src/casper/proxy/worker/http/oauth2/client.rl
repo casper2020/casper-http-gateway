@@ -151,6 +151,21 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                         }
                     }
                 }
+                Json::Value interceptor = json.Get(provider_ref, "interceptor", Json::ValueType::objectValue, &Json::Value::null);
+                if ( false == interceptor.isNull() ) {
+                    Json::Value scripts = json.Get(interceptor, "scripts", Json::ValueType::objectValue, &Json::Value::null);
+                    if ( true == scripts.isObject() && true == scripts.isMember("directory") ) {
+                        if ( true == scripts["directory"].isString() ) {
+                            scripts["directory"] = cc::fs::Dir::RealPath(scripts["directory"].asString());
+                        } else {
+                            interceptor.clear();
+                            interceptor = Json::Value::null;
+                        }
+                    } else {
+                        interceptor.clear();
+                        interceptor = Json::Value::null;
+                    }
+                }
                 const Json::Value& tmp_config = json.Get(provider_ref, "tmp", Json::ValueType::objectValue, &Json::Value::null);
                 // ... storage or storageless?
                 if ( 0 == strcasecmp(type_ref.asCString(), "storage") ) {
@@ -203,15 +218,17 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                     throw ::cc::InternalServerError("Unknown provider type '%s'!", type_ref.asCString());
                 }
                 // ... v8 script ...
+                const Json::Value& scripts_dir = ( false == interceptor.isNull() ? interceptor["scripts"]["directory"] : Json::Value::null);
+                const std::string  scripts_uri = ( false == scripts_dir.isNull() ? scripts_dir.asString() : "thin air");
                 if ( false == signing.isNull() && true == signing.isMember("output_format") ) {
                     const Json::Value& sign_out_fmt = json.Get(signing, "output_format", Json::ValueType::stringValue, nullptr);
                     // ... load script ...
-                    p_config->script(/* a_owner */ tube_, /* a_name */ config_.log_token(), /* a_uri */ "thin air", /* a_out_path */ logs_directory(), TranslatedSignOutputFormat(sign_out_fmt.asString()))
-                                .Load(/* a_external_scripts */ Json::Value::null, /* a_expressions */ {});
+                    p_config->script(/* a_owner */ tube_, /* a_name */ config_.log_token() + "-" + name, /* a_uri */ scripts_uri, /* a_out_path */ logs_directory(), TranslatedSignOutputFormat(sign_out_fmt.asString()))
+                                .Load(/* a_external_scripts */ scripts_dir, /* a_expressions */ {});
                 } else {
                     // ... load script ...
-                    p_config->script(/* a_owner */ tube_, /* a_name */ config_.log_token(), /* a_uri */ "thin air", /* a_out_path */ logs_directory(), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648)
-                                .Load(/* a_external_scripts */ Json::Value::null, /* a_expressions */ {});
+                    p_config->script(/* a_owner */ tube_, /* a_name */ config_.log_token() + "-" + name, /* a_uri */ scripts_uri, /* a_out_path */ logs_directory(), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648)
+                                .Load(/* a_external_scripts */ scripts_dir, /* a_expressions */ {});
                 }
                 // ... save it ...
                 providers_[name] = p_config;
@@ -430,8 +447,8 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
  */
 uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestCompleted (const ::casper::job::deferrable::Deferred<casper::proxy::worker::http::oauth2::Arguments>* a_deferred, Json::Value& o_payload)
 {
-    const auto& params = a_deferred->arguments().parameters();
     // ...
+    const auto& params = a_deferred->arguments().parameters();
     {
         const auto& provider = providers_.find(params.id_);
         if ( proxy::worker::http::oauth2::Config::Type::Storageless == provider->second->type_ ) {
@@ -440,6 +457,8 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestCompleted
             });
         }
     }
+    // ... handle response interception ( if required ) ...
+    InterceptResponse(a_deferred);
     // ...
     const auto     response = a_deferred->response();
     const uint16_t code     = response.code();
@@ -488,9 +507,11 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestCompleted
                 o_payload["body"] = response.body();
             }
             // ... headers ...
-            o_payload["headers"] = Json::Value(Json::ValueType::objectValue);
-            for ( auto header : response.headers() ) {
-                o_payload["headers"][header.first] = header.second;
+            if ( response.headers().size() > 0 ) {
+                o_payload["headers"] = Json::Value(Json::ValueType::objectValue);
+                for ( auto header : response.headers() ) {
+                    o_payload["headers"][header.first] = header.second;
+                }
             }
             // ... code ...
             o_payload["code"] = response.code();
@@ -522,6 +543,8 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (c
             });
         }
     }
+    // ... handle response interception ( if required ) ...
+    InterceptResponse(a_deferred);
     // ...
     const auto     response = a_deferred->response();
     const uint16_t code     = response.code();
@@ -559,9 +582,11 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (c
             o_payload["body"] = response.body();
         }
         // ... headers ...
-        o_payload["headers"] = Json::Value(Json::ValueType::objectValue);
-        for ( auto header : response.headers() ) {
-            o_payload["headers"][header.first] = header.second;
+        if ( response.headers().size() > 0 ) {
+            o_payload["headers"] = Json::Value(Json::ValueType::objectValue);
+            for ( auto header : response.headers() ) {
+                o_payload["headers"][header.first] = header.second;
+            }
         }
         // ... code ...
         o_payload["code"] = response.code();
@@ -858,6 +883,22 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
             }
             o_response.url_ += std::string(o_response.uri_.c_str() + output_dir_prefix().length());
         }
+        // ... intercept?
+        const Json::Value& interceptor_ref = json.Get(response_ref, "interceptor", Json::ValueType::objectValue, &Json::Value::null);
+        if ( false == interceptor_ref.isNull() ) {
+            const Json::Value& expr_ref = json.Get(interceptor_ref, "expr", Json::ValueType::stringValue, &Json::Value::null);
+            if ( false == expr_ref.isNull() ) {
+                o_response.interceptor_.v8_expr_ = expr_ref.asString();
+            }
+            const Json::Value& if_status_code_in_ref = json.Get(interceptor_ref, "if_status_code_in", Json::ValueType::arrayValue, &Json::Value::null);
+            if ( false == if_status_code_in_ref.isNull() ) {
+                for ( Json::ArrayIndex idx = 0 ; idx < if_status_code_in_ref.size() ; ++idx ) {
+                    o_response.interceptor_.if_status_code_in_.insert(static_cast<uint16_t>(if_status_code_in_ref[idx].asUInt()));
+                }
+            } else {
+                o_response.interceptor_.if_status_code_in_.insert(CC_STATUS_CODE_OK);
+            }
+        }
     }
 }
 
@@ -978,6 +1019,42 @@ void casper::proxy::worker::http::oauth2::Client::Evaluate (const std::string& a
 }
 
 /**
+ * @brief Evaluate a V8 expression.
+ *
+ * @param a_id         ID.
+ * @param a_expression Expression to evaluate.
+ * @param a_data       Data to load ( to be used during expression evaluation ).
+ * @param o_value      Evaluation result.
+ * @param a_script     V8 script instance to use.
+ */
+void casper::proxy::worker::http::oauth2::Client::Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, Json::Value& o_value,
+                                                            casper::proxy::worker::v8::Script& a_script) const
+{
+    const ::cc::easy::JSON<::cc::BadRequest> json;
+    
+    o_value.clear();
+    
+    ::v8::Persistent<::v8::Value> v8_value; ::cc::v8::Value cc_value;
+    a_script.SetData(/* a_name  */ a_id.c_str(),
+                     /* a_data   */ json.Write(a_data).c_str(),
+                     /* o_object */ nullptr,
+                     /* o_value  */ &v8_value,
+                     /* a_key    */ nullptr
+    );
+    a_script.Evaluate(v8_value, a_expression, cc_value);
+    if ( true == a_script.IsExceptionSet() ) {
+        throw ::cc::BadRequest("%s", a_script.exception().what());
+    }
+    switch(cc_value.type()) {
+        case ::cc::v8::Value::Type::Object:
+            o_value = cc_value;
+            break;
+        default:
+            throw ::cc::BadRequest("Unexpected // unsupported v8 evaluation ( of %s ), result type %u ", a_expression.c_str(), cc_value.type());
+    }
+}
+
+/**
  * @brief Validate requested scopes(s) against configured ones.
  *
  * @param a_request List of requested scopes.
@@ -1004,5 +1081,107 @@ void casper::proxy::worker::http::oauth2::Client::ValidateScopes (const std::str
         if ( allowed.end() == allowed.find(scope) ) {
             throw ::cc::BadRequest("Requested OAuth2 grant scope '%s' is not configured!", scope.c_str());
         }
+    }
+}
+
+/**
+ * @brief Called by 'deferred' request when it's completed.
+ *
+ * @param a_deferred Deferred request data.
+*/
+void casper::proxy::worker::http::oauth2::Client::InterceptResponse (const ::casper::job::deferrable::Deferred<casper::proxy::worker::http::oauth2::Arguments>* a_deferred)
+{
+    const auto& params = a_deferred->arguments().parameters();
+    const auto& provider = providers_.find(params.id_);
+    // ... intercept ?
+    if ( not ( params.http_response().interceptor_.v8_expr_.length() > 0 ) ) {
+        // ... no - expression is NOT set ...
+        return;
+    }
+    // ... yes, but for this status code?
+    if ( params.http_response().interceptor_.if_status_code_in_.end() == params.http_response().interceptor_.if_status_code_in_.find(a_deferred->response().code()) ) {
+        // ... no - status code NOT requested ...
+        return;
+    }
+    // ... log interception intent ...
+    LogResponseInterception("RESPONSE INTERCEPTION INTENT REQUESTED BY EVALUATION OF EXPRESSION:");
+    LogResponseInterception(params.http_response().interceptor_.v8_expr_);
+    
+    const ::cc::easy::JSON<::cc::Exception> json;
+    auto         deferred  = const_cast<::casper::job::deferrable::Deferred<casper::proxy::worker::http::oauth2::Arguments>*>(a_deferred);
+    Json::Value  response  = Json::Value::null;
+    Json::Value* data      = nullptr;
+    bool         overriden = false;
+    
+    casper::job::deferrable::Response* original  = nullptr;
+    try {
+        // ... prepare data ...
+        data = new Json::Value(Json::ValueType::objectValue);
+        (*data)["code"]           = a_deferred->response().code();
+        (*data)["content_type"]   = a_deferred->response().content_type();
+        (*data)["content_length"] = static_cast<Json::UInt64>(a_deferred->response().body().length());
+        (*data)["body"]           = a_deferred->response().body();
+        //
+        // ⚠️ ☠️ calling 'non-trusted' function(s) ☠️ ⚠️
+        //
+        Evaluate((std::to_string(a_deferred->tracking_.bjid_) + "-response"), params.http_response().interceptor_.v8_expr_, (*data), response, provider->second->script());
+        //
+        // EXPECTED:
+        //  - JSON Object: { code:<numeric>, content_type:<string>, body:<string> }
+        //     or
+        //  - JSON Object: { intercepted: false }
+        //
+        // ... override?
+        if ( not ( true == response.isMember("intercepted") && false == response["intercepted"].asBool() ) ) {
+            // ... yes ...
+            overriden = true;
+            original  = new casper::job::deferrable::Response(deferred->response());
+            deferred->OverrideResponse(static_cast<uint16_t>(response["code"].asUInt()), response["content_type"].asString(), json.Write(response["body"]), /* a_parse */ false);
+        } else {
+            // ... log interception intent cancellation ...
+            LogResponseInterception("INTERCEPTION INTENT CANCELLED DUE TO REPLY: " + json.Write(response));
+        }
+    } catch (const ::cc::Exception& a_cc_exception) {
+        if ( nullptr != data ) {
+            delete data;
+        }
+        deferred->OverrideResponse(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, ::cc::Exception("An error ocurred while evaluation an 'interceptor' V8 expression: %s", a_cc_exception.what()));
+    } catch (const Json::Exception& a_json_exception) {
+        if ( nullptr != data ) {
+            delete data;
+        }
+        deferred->OverrideResponse(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, ::cc::Exception("An error ocurred while evaluation an 'interceptor' V8 expression: %s", a_json_exception.what()));
+    } catch (...) {
+        if ( nullptr != data ) {
+            delete data;
+        }
+        try {
+            ::cc::Exception::Rethrow(/* a_unhandled */ false, __FILE__, __LINE__, __FUNCTION__);
+        } catch (const ::cc::Exception& a_cc_exception) {
+            deferred->OverrideResponse(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, ::cc::Exception("An error ocurred while evaluation an 'interceptor' V8 expression: %s", a_cc_exception.what()));
+        }
+    }
+    // ... if an exception ocurred ...
+    if ( CC_EASY_HTTP_INTERNAL_SERVER_ERROR == a_deferred->response().code() && nullptr != a_deferred->response().exception() ) {
+        // ... build standard response ...
+        response.clear();
+        SetInternalServerError(/* a_i18n */ &I18NError(),
+                               /* a_error */ {
+                                    /* code_ */ nullptr,
+                                    /* why_  */ a_deferred->response().exception()->what()
+                               },
+                               response
+        );
+        // ... override with standard response ....
+        deferred->OverrideResponse(static_cast<uint16_t>(CC_EASY_HTTP_INTERNAL_SERVER_ERROR), "application/json; charset=utf-8", json.Write(response).c_str(), /* a_parse */ false);
+        overriden = true;
+    }
+    // ... log ...
+    if ( true == overriden ) {
+        if ( nullptr != original ) {
+            LogResponseOverride(original->code(), original->content_type(), original->body(), /* a_original */ true);
+            delete original;
+        }
+        LogResponseOverride(a_deferred->response().code(), a_deferred->response().content_type(), a_deferred->response().body(), /* a_original */ false);
     }
 }

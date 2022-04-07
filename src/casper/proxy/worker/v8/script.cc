@@ -25,6 +25,24 @@
 
 #include "cc/types.h"
 #include "cc/utc_time.h"
+#include "cc/fs/dir.h"
+
+const char* const casper::proxy::worker::v8::Script::k_evaluate_basic_expression_func_name_ = "_basic_expr_eval";
+const char* const casper::proxy::worker::v8::Script::k_evaluate_basic_expression_func_ =
+"function _basic_expr_eval(expr, $) {\n"
+"    return eval(expr);\n"
+"}";
+
+#ifdef CC_DEBUG_ON
+const char* const casper::proxy::worker::v8::Script::k_variable_dump_func_name_ = "_dump";
+const char* const casper::proxy::worker::v8::Script::k_variable_dump_func_ =
+    "function _dump(title, $) {\n"
+     "    NativeLog('----- [B] ' + title + ' ------');\n"
+     "    NativeLog(JSON.stringify($));\n"
+     "    NativeLog('----- [E] ' + title + ' ------');\n"
+    "}"
+;
+#endif // #ifdef CC_DEBUG_ON
 
 /**
  * @brief Default constructor.
@@ -41,6 +59,9 @@ casper::proxy::worker::v8::Script::Script (const std::string& a_owner, const std
 : ::cc::v8::basic::Evaluator(a_owner, a_name, a_uri, a_out_path,
                              /* a_functions */
                              {
+#ifdef CC_DEBUG_ON
+                                 { "NativeLog"    , casper::proxy::worker::v8::Script::NativeLog     },
+#endif // CC_DEBUG_ON
                                  { "NowUTCISO8601", casper::proxy::worker::v8::Script::NowUTCISO8601 },
                                  { "RSASignSHA256", casper::proxy::worker::v8::Script::RSASignSHA256 }
                              }),
@@ -58,10 +79,12 @@ casper::proxy::worker::v8::Script::Script (const casper::proxy::worker::v8::Scri
 : ::cc::v8::basic::Evaluator(a_script.owner_, a_script.name_, a_script.uri_, a_script.out_path_,
                              /* a_functions */
                              {
+#ifdef CC_DEBUG_ON
+                                 { "NativeLog"    , casper::proxy::worker::v8::Script::NativeLog     },
+#endif // CC_DEBUG_ON
                                  { "NowUTCISO8601", casper::proxy::worker::v8::Script::NowUTCISO8601 },
                                  { "RSASignSHA256", casper::proxy::worker::v8::Script::RSASignSHA256 }
-                             }
-                             ),
+                             }),
   signature_output_format_(a_script.signature_output_format_)
 {
     last_exception_ = ( nullptr != a_script.last_exception_ ? new ::cc::v8::Exception(*last_exception_) : nullptr );
@@ -78,6 +101,84 @@ casper::proxy::worker::v8::Script::~Script ()
 }
 
 // MARK: -
+
+/**
+ * @brief Load this script to a specific context.
+ *
+ * @param a_external_scripts
+ * @param a_expressions
+ */
+void casper::proxy::worker::v8::Script::Load (const Json::Value& a_external_scripts, const casper::proxy::worker::v8::Script::Expressions& a_expressions)
+{
+    std::stringstream ss;
+    // ... prepare script ...
+    ss.str("");
+    ss << "\"use strict\";\n";
+    // ... basic expression function ...
+    ss << "\n//\n// " << k_evaluate_basic_expression_func_name_ << "\n//\n";
+    ss << k_evaluate_basic_expression_func_;
+#ifdef CC_DEBUG_ON
+    // ... dump function ...
+    ss << "\n\n//\n// " << k_variable_dump_func_name_ << "\n//\n";
+    ss << k_variable_dump_func_;
+#endif // CC_DEBUG_ON
+    // ... load external scripts ( 😨 ) ...
+    if ( false == a_external_scripts.isNull() ) {
+        cc::fs::Dir::ListFiles(cc::fs::Dir::Normalize(a_external_scripts.asString()), /* a_pattern */ "*.js", [&ss] (const std::string& a_uri) -> bool {
+            ss << "\n\n//\n// " << a_uri << "\n//\n";
+            // ... load ...
+            std::ifstream file(a_uri);
+            if ( file ) {
+                ss << file.rdbuf();
+                file.close();
+            } else {
+                throw ::cc::v8::Exception("Unable to load file %s: check permissions!", a_uri.c_str());
+            }
+            // ... next ...
+            return true;
+        });
+    }
+    // ... keep track of this function ...
+    const std::string loaded_script = ss.str();
+    
+    IsolatedCall([this, &loaded_script]
+                 (::v8::Local<::v8::Context>& /* a_context */, ::v8::TryCatch& /* a_try_catch */, ::v8::Isolate* a_isolate) {
+
+                     const ::v8::Local<::v8::String>                script    = ::v8::String::NewFromUtf8(a_isolate, loaded_script.c_str(), ::v8::NewStringType::kNormal).ToLocalChecked();
+                     const std::vector<::cc::v8::Context::Function> functions = {
+                         { /* name  */ k_evaluate_basic_expression_func_name_   }
+#ifdef CC_DEBUG_ON
+                       , { /* name_ */ k_variable_dump_func_name_               }
+#endif // CC_DEBUG_ON
+                    };
+                    Compile(script, &functions);
+                }
+    );
+}
+
+// MARK: -
+
+/**
+ * @brief The callback that is invoked by v8 whenever the JavaScript 'NativeLog' function is called.
+ *
+ * @param a_args
+ */
+void casper::proxy::worker::v8::Script::NativeLog (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args)
+{
+    if ( 0 == a_args.Length() ) {
+        return;
+    }
+    const ::v8::HandleScope handle_scope(a_args.GetIsolate());
+    for ( int i = 0; i < a_args.Length(); i++ ) {
+        ::v8::String::Utf8Value str(a_args.GetIsolate(), a_args[i]);
+        const char* cstr = *str;
+        fprintf(stdout, " ");
+        fprintf(stdout, "%s", cstr);
+    }
+    fprintf(stdout, " ");
+    fprintf(stdout, "\n");
+    fflush(stdout);
+}
 
 /**
  * @brief ISO8061 UTC date and time combined.
