@@ -33,6 +33,8 @@
 
 #include "cc/crypto/rsa.h"
 
+#include "ev/logger_v2.h"
+
 namespace casper
 {
     
@@ -48,28 +50,40 @@ namespace casper
                 class Script final : public ::cc::v8::basic::Evaluator
                 {
                     
+                public: // Data Type(s)
+                    
+                    typedef std::function<void(const std::string&, const bool)> LogCallback;
+                    
                 private: // Static Const Data
 
                     static const char* const k_evaluate_basic_expression_func_name_;
                     static const char* const k_evaluate_basic_expression_func_;
-
-#ifdef CC_DEBUG_ON
-                    static const char* const k_variable_dump_func_name_;
-                    static const char* const k_variable_dump_func_;
-#endif // CC_DEBUG_ON
-
-                private: // Const Data
+                    static const char* const k_variable_log_func_name_;
+                    static const char* const k_variable_log_func_;
                     
+                private: // Data
+                    
+                    ::ev::Loggable::Data                loggable_data_;
                     ::cc::crypto::RSA::SignOutputFormat signature_output_format_;
 
                 private: // Data
 
                     ::cc::v8::Exception* last_exception_;
                     
+                private: // Helper(s)
+                    
+                    ::ev::LoggerV2::Client* logger_client_;
+                    std::string             logger_token_;
+                    
+                private: // Callback(s)
+                    
+                    LogCallback             log_callback_;
+                    
                 public: // Constructor(s) / Destructor
                     
                     Script () = delete;
-                    Script (const std::string& a_owner, const std::string& a_name, const std::string& a_uri,
+                    Script (const ::ev::Loggable::Data& a_loggable_data,
+                            const std::string& a_owner, const std::string& a_name, const std::string& a_uri,
                             const std::string& a_out_path, const ::cc::crypto::RSA::SignOutputFormat a_signature_output_format);
                     Script (const Script& a_script);
                     virtual ~Script ();
@@ -77,18 +91,23 @@ namespace casper
                 public: // Inherited Method(s) / Function(s) - from ::cc::v8::Script
                     
                     virtual void Load (const Json::Value& a_external_scripts, const Expressions& a_expressions);
+                
+                public: // Inherited Method(s) / Function(s) - from ::cc::v8::Script
+                    
+                    virtual void Evaluate (const ::v8::Persistent<::v8::Value>& a_object, const std::string& a_expr_string,
+                                           ::cc::v8::Value& o_value);
                     
                 private: // Static Method(s) / Function(s)
                     
                     static void NativeLog     (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
                     static void NowUTCISO8601 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
                     static void RSASignSHA256 (const ::v8::FunctionCallbackInfo<::v8::Value>& a_args);
-                    static void TryCall       (const std::function<void(const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>&,
-                                                                        const casper::proxy::worker::v8::Script*)> a_function,
+                    static void TryCall       (const std::function<void(const ::v8::HandleScope&, const ::v8::FunctionCallbackInfo<::v8::Value>&, const casper::proxy::worker::v8::Script*)> a_function,
                                                const size_t, const ::v8::FunctionCallbackInfo<::v8::Value>&);
                     
                 public: // Inline Method(s) / Function(s)
                     
+                    inline void                        Register       (LogCallback a_callback) { log_callback_ = a_callback; }
                     inline const bool                  IsExceptionSet () const {                                        return nullptr != last_exception_;  }
                     inline const ::cc::v8::Exception&  exception      () const { CC_ASSERT(nullptr != last_exception_); return *last_exception_;            }
                     inline void                        Reset          ()       { if ( nullptr != last_exception_ ) { delete last_exception_; last_exception_ = nullptr; }}

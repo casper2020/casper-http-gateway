@@ -218,13 +218,16 @@ namespace casper
                         /**
                          * @brief Prepare v8 script, exception for better tracking of variables write acccess.
                          *
+                         * @param a_loggable_data TO BE COPIED
+                         *
                          * @return R/W access to v8 script.
                          */
-                        inline v8::Script& script (const std::string& a_owner, const std::string& a_name, const std::string& a_uri,
+                        inline v8::Script& script (const ::ev::Loggable::Data& a_loggable_data,
+                                                   const std::string& a_owner, const std::string& a_name, const std::string& a_uri,
                                                    const std::string& a_out_path, const ::cc::crypto::RSA::SignOutputFormat a_signature_output_format)
                         {
                             if ( nullptr == script_ ) {
-                                script_ = new casper::proxy::worker::v8::Script(a_owner, a_name, a_uri, a_out_path, a_signature_output_format);
+                                script_ = new casper::proxy::worker::v8::Script(a_loggable_data, a_owner, a_name, a_uri, a_out_path, a_signature_output_format);
                             }
                             return *script_;
                         }
@@ -276,8 +279,7 @@ namespace casper
                         } HTTPRequest;
                         
                         typedef struct {
-                            std::string        v8_expr_;
-                            std::set<uint16_t> if_status_code_in_;
+                            std::string v8_expr_;
                         } ResponseInterceptor;
                         
                         typedef struct {
@@ -569,8 +571,7 @@ namespace casper
                                     /* level_             */ -1,
                                     /* validity_          */ -1,
                                     /* interceptor */ {
-                                        /* v8_expr_           */ "",
-                                        /* if_status_code_in_ */ {}
+                                        /* v8_expr_ */ ""
                                     }
                                 });
                             }

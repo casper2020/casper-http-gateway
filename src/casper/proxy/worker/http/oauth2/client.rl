@@ -100,7 +100,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
             const Json::Value& grant_type_ref = json.Get(oauth2_ref  , "grant_type", Json::ValueType::stringValue , nullptr);
             const Json::Value& grant_type_obj = json.Get(oauth2_ref  , grant_type_ref.asCString(), Json::ValueType::objectValue , nullptr);
             const Json::Value  k_auto         = Json::Value(false);
-            const ::cc::easy::http::oauth2::Client::Config config = ::cc::easy::http::oauth2::Client::Config({
+            const ::cc::easy::http::oauth2::Client::Config pc_config = ::cc::easy::http::oauth2::Client::Config({
                 /* oauth2_ */ {
                     /* grant_   */ {
                       /* name_            */ grant_type_ref.asString(),
@@ -178,7 +178,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                         timeouts["operation"]  = static_cast<Json::Int>(sk_storage_operation_timeout_);
                     }
                     p_config = new proxy::worker::http::oauth2::Config( {
-                        /* http_               */ config,
+                        /* http_               */ pc_config,
                         /* headers             */ headers,
                         /* headers_per_method_ */ headers_per_method,
                         /* signing_            */ signing,
@@ -201,7 +201,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                     });
                 } else if ( 0 == strcasecmp(type_ref.asCString(), "storageless") ) {
                     p_config = new proxy::worker::http::oauth2::Config( {
-                        /* http_               */ config,
+                        /* http_               */ pc_config,
                         /* headers             */ headers,
                         /* headers_per_method_ */ headers_per_method,
                         /* signing_            */ signing,
@@ -223,13 +223,14 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                 if ( false == signing.isNull() && true == signing.isMember("output_format") ) {
                     const Json::Value& sign_out_fmt = json.Get(signing, "output_format", Json::ValueType::stringValue, nullptr);
                     // ... load script ...
-                    p_config->script(/* a_owner */ tube_, /* a_name */ config_.log_token() + "-" + name, /* a_uri */ scripts_uri, /* a_out_path */ logs_directory(), TranslatedSignOutputFormat(sign_out_fmt.asString()))
+                    p_config->script(loggable_data_, /* a_owner */ tube_, /* a_name */ config_.log_token() + "-" + name + "-v8",  /* a_uri */ scripts_uri, /* a_out_path */ logs_directory(), TranslatedSignOutputFormat(sign_out_fmt.asString()))
                                 .Load(/* a_external_scripts */ scripts_dir, /* a_expressions */ {});
                 } else {
                     // ... load script ...
-                    p_config->script(/* a_owner */ tube_, /* a_name */ config_.log_token() + "-" + name, /* a_uri */ scripts_uri, /* a_out_path */ logs_directory(), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648)
+                    p_config->script(loggable_data_, /* a_owner */ tube_, /* a_name */ config_.log_token() + "-" + name + "-v8",  /* a_uri */ scripts_uri, /* a_out_path */ logs_directory(), ::cc::crypto::RSA::SignOutputFormat::BASE64_RFC4648)
                                 .Load(/* a_external_scripts */ scripts_dir, /* a_expressions */ {});
                 }
+                p_config->script().Register(std::bind(&worker::http::oauth2::Client::EvaluationLog, this, std::placeholders::_1, std::placeholders::_2));
                 // ... save it ...
                 providers_[name] = p_config;
                 // ... forget it ...
@@ -889,15 +890,7 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
             const Json::Value& expr_ref = json.Get(interceptor_ref, "expr", Json::ValueType::stringValue, &Json::Value::null);
             if ( false == expr_ref.isNull() ) {
                 o_response.interceptor_.v8_expr_ = expr_ref.asString();
-            }
-            const Json::Value& if_status_code_in_ref = json.Get(interceptor_ref, "if_status_code_in", Json::ValueType::arrayValue, &Json::Value::null);
-            if ( false == if_status_code_in_ref.isNull() ) {
-                for ( Json::ArrayIndex idx = 0 ; idx < if_status_code_in_ref.size() ; ++idx ) {
-                    o_response.interceptor_.if_status_code_in_.insert(static_cast<uint16_t>(if_status_code_in_ref[idx].asUInt()));
-                }
-            } else {
-                o_response.interceptor_.if_status_code_in_.insert(CC_STATUS_CODE_OK);
-            }
+            }            
         }
     }
 }
@@ -1055,6 +1048,21 @@ void casper::proxy::worker::http::oauth2::Client::Evaluate (const std::string& a
 }
 
 /**
+ * @brief Log a message resulting from an expression evaluation.
+ *
+ * @param a_message Message to log.
+ * @param a_success When false it will be considered an error.
+ */
+void casper::proxy::worker::http::oauth2::Client::EvaluationLog (const std::string& a_message, const bool a_success) const
+{
+    if ( true == a_success ) {
+        LogMessage(CC_JOB_LOG_LEVEL_INF, CC_JOB_LOG_STEP_V8, CC_JOB_LOG_COLOR(DARK_GRAY) + a_message + CC_LOGS_LOGGER_RESET_ATTRS);
+    } else {
+        LogMessage(CC_JOB_LOG_LEVEL_ERR, CC_JOB_LOG_STEP_V8, CC_JOB_LOG_COLOR(RED) + a_message + CC_LOGS_LOGGER_RESET_ATTRS);
+    }
+}
+
+/**
  * @brief Validate requested scopes(s) against configured ones.
  *
  * @param a_request List of requested scopes.
@@ -1098,14 +1106,11 @@ void casper::proxy::worker::http::oauth2::Client::InterceptResponse (const ::cas
         // ... no - expression is NOT set ...
         return;
     }
-    // ... yes, but for this status code?
-    if ( params.http_response().interceptor_.if_status_code_in_.end() == params.http_response().interceptor_.if_status_code_in_.find(a_deferred->response().code()) ) {
-        // ... no - status code NOT requested ...
-        return;
-    }
+    const std::string& expr = params.http_response().interceptor_.v8_expr_;
+    
     // ... log interception intent ...
     LogResponseInterception("RESPONSE INTERCEPTION INTENT REQUESTED BY EVALUATION OF EXPRESSION:");
-    LogResponseInterception(params.http_response().interceptor_.v8_expr_);
+    LogResponseInterception(expr);
     
     const ::cc::easy::JSON<::cc::Exception> json;
     auto         deferred  = const_cast<::casper::job::deferrable::Deferred<casper::proxy::worker::http::oauth2::Arguments>*>(a_deferred);
@@ -1124,7 +1129,7 @@ void casper::proxy::worker::http::oauth2::Client::InterceptResponse (const ::cas
         //
         // ⚠️ ☠️ calling 'non-trusted' function(s) ☠️ ⚠️
         //
-        Evaluate((std::to_string(a_deferred->tracking_.bjid_) + "-response"), params.http_response().interceptor_.v8_expr_, (*data), response, provider->second->script());
+        Evaluate((std::to_string(a_deferred->tracking_.bjid_) + "-response"), expr, (*data), response, provider->second->script());
         //
         // EXPECTED:
         //  - JSON Object: { code:<numeric>, content_type:<string>, body:<string> }
@@ -1145,12 +1150,14 @@ void casper::proxy::worker::http::oauth2::Client::InterceptResponse (const ::cas
         if ( nullptr != data ) {
             delete data;
         }
-        deferred->OverrideResponse(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, ::cc::Exception("An error ocurred while evaluation an 'interceptor' V8 expression: %s", a_cc_exception.what()));
+        deferred->OverrideResponse(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, ::cc::Exception("An error ocurred while evaluating an 'interceptor' V8 expression '%s': %s",
+                                                                                       expr.c_str(), a_cc_exception.what()));
     } catch (const Json::Exception& a_json_exception) {
         if ( nullptr != data ) {
             delete data;
         }
-        deferred->OverrideResponse(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, ::cc::Exception("An error ocurred while evaluation an 'interceptor' V8 expression: %s", a_json_exception.what()));
+        deferred->OverrideResponse(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, ::cc::Exception("An error ocurred while evaluating an 'interceptor' V8 expression '%s': %s",
+                                                                                       expr.c_str(), a_json_exception.what()));
     } catch (...) {
         if ( nullptr != data ) {
             delete data;
@@ -1158,20 +1165,15 @@ void casper::proxy::worker::http::oauth2::Client::InterceptResponse (const ::cas
         try {
             ::cc::Exception::Rethrow(/* a_unhandled */ false, __FILE__, __LINE__, __FUNCTION__);
         } catch (const ::cc::Exception& a_cc_exception) {
-            deferred->OverrideResponse(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, ::cc::Exception("An error ocurred while evaluation an 'interceptor' V8 expression: %s", a_cc_exception.what()));
+            deferred->OverrideResponse(CC_EASY_HTTP_INTERNAL_SERVER_ERROR, ::cc::Exception("An error ocurred while evaluating an 'interceptor' V8 expression '%s': %s",
+                                                                                           expr.c_str(), a_cc_exception.what()));
         }
     }
     // ... if an exception ocurred ...
     if ( CC_EASY_HTTP_INTERNAL_SERVER_ERROR == a_deferred->response().code() && nullptr != a_deferred->response().exception() ) {
         // ... build standard response ...
         response.clear();
-        SetInternalServerError(/* a_i18n */ &I18NError(),
-                               /* a_error */ {
-                                    /* code_ */ nullptr,
-                                    /* why_  */ a_deferred->response().exception()->what()
-                               },
-                               response
-        );
+        response["error"] = a_deferred->response().exception()->what();
         // ... override with standard response ....
         deferred->OverrideResponse(static_cast<uint16_t>(CC_EASY_HTTP_INTERNAL_SERVER_ERROR), "application/json; charset=utf-8", json.Write(response).c_str(), /* a_parse */ false);
         overriden = true;

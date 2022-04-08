@@ -120,9 +120,10 @@ namespace casper
 
                     private: // Method(s) / Function(s) - V8 Helper(s)
                         
-                        void Evaluate (const uint64_t& a_id   , const std::string& a_expression, const Json::Value& a_data, std::string& o_value, casper::proxy::worker::v8::Script& a_script) const;
-                        void Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value, casper::proxy::worker::v8::Script& a_script) const;
-                        void Evaluate (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, Json::Value& o_value, casper::proxy::worker::v8::Script& a_script) const;
+                        void Evaluate      (const uint64_t& a_id   , const std::string& a_expression, const Json::Value& a_data, std::string& o_value, casper::proxy::worker::v8::Script& a_script) const;
+                        void Evaluate      (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, std::string& o_value, casper::proxy::worker::v8::Script& a_script) const;
+                        void Evaluate      (const std::string& a_id, const std::string& a_expression, const Json::Value& a_data, Json::Value& o_value, casper::proxy::worker::v8::Script& a_script) const;
+                        void EvaluationLog (const std::string& a_message, const bool a_success) const;
                         
                         void ValidateScopes (const std::string& a_requested, const std::string& a_allowed) const;
                         
