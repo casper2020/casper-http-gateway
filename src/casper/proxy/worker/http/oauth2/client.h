@@ -67,7 +67,7 @@ namespace casper
                     private: // Data Type(s)
                         
                         struct RejectedHeadersComparator {
-                            bool operator () (const std::string& a_lhs, const std::string& a_rhs)
+                            bool operator () (const std::string& a_lhs, const std::string& a_rhs) const
                             {
                                 return strcasecmp(a_lhs.c_str(), a_rhs.c_str()) < 0;
                             }
