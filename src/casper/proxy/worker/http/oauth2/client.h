@@ -88,6 +88,11 @@ namespace casper
                         
                         std::map<std::string, proxy::worker::http::oauth2::Config*> providers_;
                         
+                    private: // Data
+                        
+                        Json::Value* tmp_v8_data_;
+                        Json::Value* tmp_body_;
+                        
                     public: // Constructor(s) / Destructor
                         
                         Client () = delete;
@@ -96,8 +101,9 @@ namespace casper
 
                     protected: // Inherited Virtual Method(s) / Function(s) - ::casper::job::deferrable::Base<ClientStep, ClientStep::Done>
                         
-                        virtual void InnerSetup ();
-                        virtual void InnerRun   (const int64_t& a_id, const Json::Value& a_payload, cc::easy::job::Job::Response& o_response);
+                        virtual void InnerSetup   ();
+                        virtual void InnerRun     (const int64_t& a_id, const Json::Value& a_payload, cc::easy::job::Job::Response& o_response);
+                        virtual void InnerCleanUp ();
 
                     private: // Method(s) / Function(s) - deferrable::Dispatcher Callbacks
                         
@@ -128,6 +134,8 @@ namespace casper
                         void ValidateScopes (const std::string& a_requested, const std::string& a_allowed) const;
                         
                         void InterceptResponse (const ::casper::job::deferrable::Deferred<casper::proxy::worker::http::oauth2::Arguments>* a_deferred);
+                        
+                        void LoadFile (const std::string& a_uri, Json::Value& o_value);
 
                     }; // end of class 'Client'
                 

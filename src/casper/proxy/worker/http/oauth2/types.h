@@ -285,7 +285,7 @@ namespace casper
                         typedef struct {
                             std::string         uri_;         //!< local file URI.
                             std::string         url_;         //!< URL to access file
-                            bool                deflated_;    //!< if true will deflated data will be stored
+                            bool                deflated_;    //!< if true, will deflated data
                             int8_t              level_;       //!< ZLib ccompression level, -1...9, Z_DEFAULT_COMPRESSION ( -1 )
                             int64_t             validity_;    //!< local file validity
                             ResponseInterceptor interceptor_; //!< response interception: if set response will be intercepted via V8 expression evaluation

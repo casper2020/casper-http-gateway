@@ -61,6 +61,13 @@ namespace casper
                         bool                                  follow_location_;
                     } HTTPRequest;
                     
+                    typedef struct {
+                        std::string         uri_;         //!< local file URI.
+                        std::string         url_;         //!< URL to access file
+                        bool                base64_;      //!< if true will convert do base64
+                        int64_t             validity_;    //!< local file validity
+                    } HTTPResponse;
+                    
                 public: // Const Data
                     
                     const Json::Value&                       data_;
@@ -70,7 +77,8 @@ namespace casper
                     
                 private: // Data
                     
-                    HTTPRequest*                             http_req_;
+                    HTTPRequest*                             http_req_;      //!< Evaluated HTTP request data.
+                    HTTPResponse*                            http_resp_;     //!< Evaluated HTTP response config.
                     
                 public: // Constructor(s) / Destructor
                     
@@ -86,7 +94,7 @@ namespace casper
                      */
                     Parameters (const Json::Value& a_data, const bool a_primitive, const int a_log_level, const bool a_log_redact)
                      : data_(a_data), primitive_(a_primitive), log_level_(a_log_level), log_redact_(a_log_redact),
-                       http_req_(nullptr)
+                       http_req_(nullptr), http_resp_(nullptr)
                     {
                         /* empty */
                     }
@@ -98,10 +106,13 @@ namespace casper
                      */
                     Parameters (const Parameters& a_parameters)
                      : data_(a_parameters.data_), primitive_(a_parameters.primitive_), log_level_(a_parameters.log_level_), log_redact_(a_parameters.log_redact_),
-                       http_req_(nullptr)
+                       http_req_(nullptr), http_resp_(nullptr)
                     {
                         if ( nullptr != a_parameters.http_req_ ) {
                             http_req_ = new HTTPRequest(*a_parameters.http_req_);
+                        }
+                        if ( nullptr != a_parameters.http_resp_ ) {
+                            http_resp_ = new HTTPResponse(*a_parameters.http_resp_);
                         }
                     }
                     
@@ -112,6 +123,9 @@ namespace casper
                     {
                         if ( nullptr != http_req_ ) {
                             delete http_req_;
+                        }
+                        if ( nullptr != http_resp_ ) {
+                            delete http_resp_;
                         }
                     }
 
@@ -154,6 +168,47 @@ namespace casper
                         a_callback(*http_req_);
                         // ... done ...
                         return *http_req_;
+                    }
+                                        
+                    /**
+                     * @return R/O access to HTTP response config.
+                     */
+                    inline const HTTPResponse& http_response () const
+                    {
+                        if ( nullptr != http_resp_ ) {
+                            return *http_resp_;
+                        }
+                        throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
+                    }
+                    
+                    /**
+                     * @return True if a custom HTTP response was configured.
+                     */
+                    inline bool IsCustomHTTPResponseSet () const
+                    {
+                        return nullptr != http_resp_;
+                    }
+                                        
+                    /**
+                     * @brief Prepare response config, exception for better tracking of variables write acccess.
+                     *
+                     * @return R/O access to response config.
+                     */
+                    inline const HTTPResponse& http_response (const std::function<void(HTTPResponse&)>& a_callback)
+                    {
+                        // ... if doesn't exists yet ...
+                        if ( nullptr == http_resp_ ) {
+                            http_resp_ = new HTTPResponse({
+                                /* uri_               */ "",
+                                /* url_               */ "",
+                                /* base64_            */ false,
+                                /* validity_          */ -1
+                            });
+                        }
+                        // ... callback ...
+                        a_callback(*http_resp_);
+                        // ... done ...
+                        return *http_resp_;
                     }
 
                 }; // end of class 'Parameters'

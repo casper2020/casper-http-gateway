@@ -30,6 +30,7 @@
 #include "cc/fs/dir.h"
 
 #include "cc/v8/exception.h"
+#include "cc/b64.h"
 
 #include "version.h"
 
@@ -117,16 +118,17 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
             /* a_log_redact */ config_.log_redact()
         }
     );
-    // ... set request properties ...
+    //
+    // REQUEST config
+    //
     (void)arguments.parameters().http_request([&json, &http, &arguments](http::Parameters::HTTPRequest& request){
         // ... prepare request ...
         const Json::Value& url             = json.Get(http   , "url"            , Json::ValueType::stringValue, nullptr);
         const Json::Value& method          = json.Get(http   , "method"         , Json::ValueType::stringValue, nullptr);
-        const Json::Value& params          = json.Get(http   , "params"         , Json::ValueType::objectValue, nullptr);
+        const Json::Value& params          = json.Get(http   , "params"         , Json::ValueType::objectValue, &Json::Value::null);
         const Json::Value& body            = json.Get(http   , "body"           , Json::ValueType::objectValue, &Json::Value::null);
         const Json::Value& headers         = json.Get(http   , "headers"        , Json::ValueType::objectValue, nullptr);
         const Json::Value& follow_location = json.Get(http   , "follow_location", Json::ValueType::booleanValue, &Json::Value::null);
-        const Json::Value& content_type    = json.Get(headers, "Content-Type"   , Json::ValueType::stringValue, nullptr);
         // ... method ...
         const std::string method_str = method.asString();
         {
@@ -162,6 +164,7 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
         }
         // ... body ...
         if ( false == body.isNull() ) {
+            const Json::Value& content_type = json.Get(headers, "Content-Type"   , Json::ValueType::stringValue, nullptr);
             if ( 0 == strncasecmp(content_type.asCString(), "application/json", sizeof(char) * 16) ) {
                 request.body_ = json.Write(body);
             } else {
@@ -190,6 +193,45 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
             }
         }
     });
+    //
+    // RESPONSE config
+    //
+    const Json::Value& response_ref = json.Get(http, "response", Json::ValueType::objectValue, &Json::Value::null);
+    if ( false == response_ref.isNull() ) {
+        (void)arguments.parameters().http_response([&](proxy::worker::http::Parameters::HTTPResponse& response) {
+            // ... write to file?
+            const Json::Value& to_file_ref = json.Get(response_ref, "to_file", Json::ValueType::booleanValue, &Json::Value::null);
+            if ( false == to_file_ref.isNull() && true == to_file_ref.asBool() ) {
+                
+                const Json::Value& tmp_ref = json.Get(config_.other(), "tmp", Json::ValueType::objectValue, nullptr);
+                // ... read validity ...
+                const Json::Value& validity_ref = json.Get(response_ref, "validity", Json::ValueType::intValue, &Json::Value::null);
+                if ( false == validity_ref.isNull() && validity_ref.asInt64() > 0 ) {
+                    response.validity_ = static_cast<int64_t>(validity_ref.asInt64());
+                } else {
+                    response.validity_ = static_cast<int64_t>(json.Get(tmp_ref, "validity", Json::ValueType::uintValue, &Json::Value::null).asUInt());
+                }
+                // ... make unique file ...
+                ::cc::fs::File::Unique(EnsureOutputDir(response.validity_), /* name */ "", "ohc", response.uri_);
+                // ... set URL ...
+                const Json::Value& local_ref = json.Get(response_ref, "local", Json::ValueType::booleanValue, &Json::Value::null);
+                if ( true == local_ref.isNull() || true == local_ref.asBool() ) {
+                    response.url_ = "file://" + response.uri_;
+                } else {
+                    response.url_ = json.Get(tmp_ref, "base_url", Json::ValueType::stringValue, nullptr).asString();
+                    if ( '/' != response.url_[response.url_.length() - 1] ) {
+                        response.url_ += '/';
+                    }
+                    response.url_ += std::string(response.uri_.c_str() + output_dir_prefix().length());
+                }
+            }
+            // ... base64?
+            const Json::Value& base64_ref = json.Get(response_ref, "base64", Json::ValueType::booleanValue, &Json::Value::null);
+            if ( false == base64_ref.isNull() ) {
+                response.base64_ = base64_ref.asBool();
+            }
+        });
+    }
     // ... schedule deferred HTTP request ...
     dynamic_cast<http::Dispatcher*>(d_.dispatcher_)->Push(tracking, arguments);
     // ... publish progress ...
@@ -238,20 +280,55 @@ uint16_t casper::proxy::worker::http::Client::OnDeferredRequestCompleted (const 
         // ... data ...
         o_payload["data"] = ss.str();
     } else {
-        // ... body ...
-        if ( true == ::cc::easy::JSON<::cc::Exception>::IsJSON(response.content_type()) ) {
-            const ::cc::easy::JSON<::cc::Exception> json;
-            json.Parse(response.body(), o_payload["body"]);
+        // ...
+        if ( 200 == response.code()
+                && true == a_deferred->arguments().parameters().IsCustomHTTPResponseSet()
+        ) {            
+            const unsigned char* const data = reinterpret_cast<const unsigned char*>(response.body().c_str());
+            const size_t               size = response.body().size();
+            // ... to file?
+            if ( 0 != a_deferred->arguments().parameters().http_response().uri_.length() ) {
+                // ... yes ...
+                ::cc::fs::File file;
+                file.Open(a_deferred->arguments().parameters().http_response().uri_, ::cc::fs::File::Mode::Write);
+                // ... base64 it?
+                if ( true == a_deferred->arguments().parameters().http_response().base64_ ) {
+                    const auto b64 = ::cc::base64_rfc4648::encode(data, size);
+                    file.Write(b64.c_str(), b64.length());
+                } else {
+                    file.Write(data, size);
+                }
+                file.Close();
+                const char* const dst = a_deferred->arguments().parameters().http_response().url_.c_str();
+                if ( nullptr != strcasestr(dst, "file://") ) {
+                    o_payload["uri"] = dst;
+                } else {
+                    o_payload["url"] = dst;
+                }
+            } else {
+                // ... no ...
+                if ( true == a_deferred->arguments().parameters().http_response().base64_ ) {
+                    o_payload["body"] =::cc::base64_rfc4648::encode(data, size);
+                } else {
+                    o_payload["body"] = response.body();
+                }
+            }
         } else {
-            o_payload["body"] = response.body();
+            // ... body ...
+            if ( true == ::cc::easy::JSON<::cc::Exception>::IsJSON(response.content_type()) ) {
+                const ::cc::easy::JSON<::cc::Exception> json;
+                json.Parse(response.body(), o_payload["body"]);
+            } else {
+                o_payload["body"] = response.body();
+            }
+            // ... headers ...
+            o_payload["headers"] = Json::Value(Json::ValueType::objectValue);
+            for ( auto header : response.headers() ) {
+                o_payload["headers"][header.first] = header.second;
+            }
+            // ... code ...
+            o_payload["code"] = response.code();
         }
-        // ... headers ...
-        o_payload["headers"] = Json::Value(Json::ValueType::objectValue);
-        for ( auto header : response.headers() ) {
-            o_payload["headers"][header.first] = header.second;
-        }
-        // ... code ...
-        o_payload["code"] = response.code();
     }
     // ... done ...
     return code;
