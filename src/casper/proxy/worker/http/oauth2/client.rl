@@ -969,6 +969,7 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
             const Json::Value& expr_ref = json.Get(interceptor_ref, "expr", Json::ValueType::stringValue, &Json::Value::null);
             if ( false == expr_ref.isNull() ) {
                 o_response.interceptor_.v8_expr_ = expr_ref.asString();
+                o_response.interceptor_.v8_data_ = interceptor_ref["data"];
             }            
         }
     }
@@ -1169,6 +1170,7 @@ void casper::proxy::worker::http::oauth2::Client::InterceptResponse (const ::cas
         (*data)["content_type"]   = a_deferred->response().content_type();
         (*data)["content_length"] = static_cast<Json::UInt64>(a_deferred->response().body().length());
         (*data)["body"]           = a_deferred->response().body();
+        (*data)["data"]           = params.http_response().interceptor_.v8_data_;
         //
         // ⚠️ ☠️ calling 'non-trusted' function(s) ☠️ ⚠️
         //

@@ -280,6 +280,7 @@ namespace casper
                         
                         typedef struct {
                             std::string v8_expr_;
+                            Json::Value v8_data_;
                         } ResponseInterceptor;
                         
                         typedef struct {
@@ -571,7 +572,8 @@ namespace casper
                                     /* level_             */ -1,
                                     /* validity_          */ -1,
                                     /* interceptor */ {
-                                        /* v8_expr_ */ ""
+                                        /* v8_expr_ */ "",
+                                        /* v8_data_ */ Json::nullValue
                                     }
                                 });
                             }
