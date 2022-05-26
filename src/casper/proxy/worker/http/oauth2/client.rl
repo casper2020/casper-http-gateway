@@ -1169,8 +1169,12 @@ void casper::proxy::worker::http::oauth2::Client::InterceptResponse (const ::cas
         (*data)["code"]           = a_deferred->response().code();
         (*data)["content_type"]   = a_deferred->response().content_type();
         (*data)["content_length"] = static_cast<Json::UInt64>(a_deferred->response().body().length());
-        (*data)["body"]           = a_deferred->response().body();
-        (*data)["data"]           = params.http_response().interceptor_.v8_data_;
+        if ( true == json.IsJSON(a_deferred->response().content_type()) ) {
+            json.Parse(a_deferred->response().body(), (*data)["body"]);
+        } else {
+            (*data)["body"] = a_deferred->response().body();
+        }
+        (*data)["data"] = params.http_response().interceptor_.v8_data_;
         //
         // ⚠️ ☠️ calling 'non-trusted' function(s) ☠️ ⚠️
         //
