@@ -121,14 +121,18 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
     //
     // REQUEST config
     //
-    (void)arguments.parameters().http_request([&json, &http, &arguments](http::Parameters::HTTPRequest& request){
+    (void)arguments.parameters().http_request([this, &json, &http, &arguments](http::Parameters::HTTPRequest& request){
         // ... prepare request ...
-        const Json::Value& url             = json.Get(http   , "url"            , Json::ValueType::stringValue, nullptr);
-        const Json::Value& method          = json.Get(http   , "method"         , Json::ValueType::stringValue, nullptr);
-        const Json::Value& params          = json.Get(http   , "params"         , Json::ValueType::objectValue, &Json::Value::null);
-        const Json::Value& body            = json.Get(http   , "body"           , Json::ValueType::objectValue, &Json::Value::null);
-        const Json::Value& headers         = json.Get(http   , "headers"        , Json::ValueType::objectValue, nullptr);
-        const Json::Value& follow_location = json.Get(http   , "follow_location", Json::ValueType::booleanValue, &Json::Value::null);
+        const Json::Value& url             = json.Get(http, "url"            , Json::ValueType::stringValue, nullptr);
+        const Json::Value& method          = json.Get(http, "method"         , Json::ValueType::stringValue, nullptr);
+        const Json::Value& params          = json.Get(http, "params"         , Json::ValueType::objectValue, &Json::Value::null);
+        const Json::Value& body_data       = json.Get(http, "body"           , { Json::ValueType::objectValue, Json::ValueType::stringValue }, &Json::Value::null);
+        const Json::Value& body_url        = json.Get(http, "body_url"       , Json::ValueType::stringValue, &Json::Value::null);
+        const Json::Value& headers         = json.Get(http, "headers"        , Json::ValueType::objectValue, nullptr);
+        const Json::Value& follow_location = json.Get(http, "follow_location", Json::ValueType::booleanValue, &Json::Value::null);
+#ifdef CC_DEBUG_ON
+            const Json::Value& ssl_do_not_verify_peer = json.Get(http, "ssl_do_not_verify_peer", Json::ValueType::booleanValue, &Json::Value::null);
+#endif
         // ... method ...
         const std::string method_str = method.asString();
         {
@@ -152,34 +156,6 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
             CC_RAGEL_SILENCE_VARS(Client)
             CC_DIAGNOSTIC_POP();
         }
-        // ... url ...
-        request.url_ = url.asString();
-        // ... params ...
-        if ( false == params.isNull() ) {
-            std::map<std::string, std::string> map;
-            for ( auto key : params.getMemberNames() ) {
-                map[key] = json.Get(params, key.c_str(), Json::ValueType::stringValue, nullptr).asString();
-            }
-            ::cc::easy::http::Client::SetURLQuery(request.url_, map, request.url_);
-        }
-        // ... body ...
-        if ( false == body.isNull() ) {
-            const Json::Value& content_type = json.Get(headers, "Content-Type"   , Json::ValueType::stringValue, nullptr);
-            if ( 0 == strncasecmp(content_type.asCString(), "application/json", sizeof(char) * 16) ) {
-                request.body_ = json.Write(body);
-            } else {
-                request.body_ = body.asString();
-            }
-        }
-        // ... headers ...
-        for ( auto key : headers.getMemberNames() ) {
-            const Json::Value& header = json.Get(headers, key.c_str(), Json::ValueType::stringValue, nullptr);
-            request.headers_[key] = { header.asString() };
-        }
-        // ... follow location?
-        if ( false == follow_location.isNull() ) {
-            request.follow_location_ = follow_location.asBool();
-        }
         // ... timeouts ...
         const Json::Value& timeouts = json.Get(arguments.parameters().data_, "timeouts", Json::ValueType::objectValue, &Json::Value::null);
         if ( false == timeouts.isNull() ) {
@@ -192,6 +168,85 @@ void casper::proxy::worker::http::Client::InnerRun (const int64_t& a_id, const J
                 request.timeouts_.operation_ = static_cast<long>(operation_ref.asInt64());
             }
         }
+        // ... url ...
+        request.url_ = url.asString();
+        // ... params ...
+        if ( false == params.isNull() ) {
+            std::map<std::string, std::string> map;
+            for ( auto key : params.getMemberNames() ) {
+                map[key] = json.Get(params, key.c_str(), Json::ValueType::stringValue, nullptr).asString();
+            }
+            ::cc::easy::http::Client::SetURLQuery(request.url_, map, request.url_);
+        }
+        // ... body ...
+        if ( false == body_data.isNull() && false == body_url.isNull() ) {
+            throw ::cc::BadRequest("Multiple 'body' values provided, only one is supported!");
+        }
+        if ( false == body_data.isNull() ) {
+            const Json::Value& content_type = json.Get(headers, "Content-Type", Json::ValueType::stringValue, nullptr);
+            if ( 0 == strncasecmp(content_type.asCString(), "application/json", sizeof(char) * 16) ) {
+                request.body_ = json.Write(body_data);
+            } else {
+                request.body_ = body_data.asString();
+            }
+        } else if ( false == body_url.isNull() ) {
+            const Json::Value& content_type = json.Get(headers, "Content-Type", Json::ValueType::stringValue, nullptr);
+            EV_CURL_HTTP_TIMEOUTS fetch_timeouts = request.timeouts_;
+            if ( -1 != fetch_timeouts.connection_ ) {
+                fetch_timeouts.connection_ *= 0.5;
+            }
+            if ( -1 != fetch_timeouts.operation_ ) {
+                fetch_timeouts.operation_ *= 0.5;
+            }
+            uint16_t status_code = CC_STATUS_CODE_BAD_REQUEST;
+            ClientBaseClass::HTTPGet(body_url.asString(), {},
+                                         /* a_success_callback */
+                                         [&status_code, &request, &content_type, &json] (const ::ev::curl::Value& a_value) {
+                                            status_code = a_value.code();
+                                            // ... succeded?
+                                            if ( CC_STATUS_CODE_OK == status_code ) {
+                                                // ... yes, trust request 'Content-Type' ...
+                                                if ( 0 == strncasecmp(content_type.asCString(), "application/json", sizeof(char) * 16) ) {
+                                                    request.body_ = json.Write(a_value.body());
+                                                } else {
+                                                    request.body_ = a_value.body();
+                                                }
+                                            } else {
+                                                // ... no, trust response 'Content-Type' ...
+                                                if ( 0 == strncasecmp(a_value.header("content-type").c_str(), "application/json", sizeof(char) * 16) ) {
+                                                    request.body_ = json.Write(a_value.body());
+                                                } else {
+                                                    request.body_ = a_value.body();
+                                                }
+                                            }
+                                        },
+                                        /* a_failure_callback */
+                                        [] (const ::ev::Exception& a_ev_exception) {
+                                            // ... re-throw exception ...
+                                            throw a_ev_exception;
+                                        },
+                                        /* a_timeouts */
+                                        &fetch_timeouts
+            );
+            if ( CC_STATUS_CODE_OK != status_code ) {
+                throw ::cc::CodedException(status_code, "%s", request.body_.c_str());
+            }
+        }
+        // ... headers ...
+        for ( auto key : headers.getMemberNames() ) {
+            const Json::Value& header = json.Get(headers, key.c_str(), Json::ValueType::stringValue, nullptr);
+            request.headers_[key] = { header.asString() };
+        }
+        // ... follow location?
+        if ( false == follow_location.isNull() ) {
+            request.follow_location_ = follow_location.asBool();
+        }
+        // ... disable SSL peer verification?
+#ifdef CC_DEBUG_ON
+        if ( false == ssl_do_not_verify_peer.isNull() ) {
+            request.ssl_do_not_verify_peer_ = ssl_do_not_verify_peer.asBool();
+        }
+#endif
     });
     //
     // RESPONSE config

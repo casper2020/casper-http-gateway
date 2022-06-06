@@ -59,6 +59,7 @@ namespace casper
                         ::cc::easy::http::Client::Headers     headers_;
                         ::cc::easy::http::Client::Timeouts    timeouts_;
                         bool                                  follow_location_;
+                        CC_IF_DEBUG(bool                      ssl_do_not_verify_peer_);
                     } HTTPRequest;
                     
                     typedef struct {
@@ -162,6 +163,7 @@ namespace casper
                                 /* headers_         */ {},
                                 /* timeouts_        */ { -1, -1 },
                                 /* follow_location_ */ false
+                                CC_IF_DEBUG(, /* ssl_do_not_verify_peer_ */ false)
                             });
                         }
                         // ... callback ...

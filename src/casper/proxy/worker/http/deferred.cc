@@ -99,6 +99,12 @@ void casper::proxy::worker::http::Deferred::Run (const casper::proxy::worker::ht
         if ( true == request.follow_location_ ) {
             http_->SetFollowLocation();
         }
+        // ... disable SSL peer verification?
+#ifdef CC_DEBUG_ON
+        if ( true == request.ssl_do_not_verify_peer_ ) {
+            http_->SetSSLDoNotVerifyPeer();
+        }
+#endif
         // ... set callbacks ...
         const ::cc::easy::http::Client::Callbacks callbacks = {
             /* on_success_ */ std::bind(&casper::proxy::worker::http::Deferred::OnHTTPRequestCompleted, this, std::placeholders::_1),
