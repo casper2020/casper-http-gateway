@@ -490,11 +490,26 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestCompleted
             });
         }
     }
+    const ::cc::easy::JSON<::cc::Exception> json;
     // ... handle response interception ( if required ) ...
     InterceptResponse(a_deferred);
     // ...
-    const auto     response = a_deferred->response();
+    const auto&    response = a_deferred->response();
     const uint16_t code     = response.code();
+    // ... let's call it a 'feature' ...
+    if ( Parameters::RequestType::OAuth2Grant == params.request_type() && true == params.auth_code_request().expose_ ) {
+        // ... if succeeded and response is JSON ...
+        if ( 200 == code && true == ::cc::easy::JSON<::cc::Exception>::IsJSON(response.content_type()) ) {
+            // ... parse ...
+            json.Parse(response.body(), o_payload["body"]);
+            // ... expose access token ... as requested ....
+            o_payload["body"]["access_token"] = params.tokens().access_;
+            // ... override response ...
+            const_cast<::casper::job::deferrable::Deferred<casper::proxy::worker::http::oauth2::Arguments>*>(a_deferred)
+                ->OverrideResponse(code, response.content_type(), response.headers(), json.Write(o_payload["body"]), /* a_parse */ false);
+            (void)o_payload.removeMember("body");
+        }
+    }
     // ... set payload ...
     o_payload = Json::Value(Json::ValueType::objectValue);
     // ... primitive or default?
@@ -534,7 +549,6 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestCompleted
         } else {
             // ... body ...
             if ( true == ::cc::easy::JSON<::cc::Exception>::IsJSON(response.content_type()) ) {
-                const ::cc::easy::JSON<::cc::Exception> json;
                 json.Parse(response.body(), o_payload["body"]);
             } else {
                 o_payload["body"] = response.body();
@@ -753,6 +767,11 @@ void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::cas
     const Json::Value& state = json.Get(a_arguments.parameters().data_, "state", Json::ValueType::stringValue, &Json::Value::null);
     if ( false == state.isNull() ) {
         a_request.state_ = state.asString();
+    }
+    // ... let's call it a 'feature' ...
+    const auto expose = json.Get(a_arguments.parameters().data_, "expose", Json::ValueType::booleanValue, &Json::Value::null);
+    if ( false == expose.isNull() ) {
+        a_request.expose_ = expose.asBool();
     }
     // ... code ...
     a_request.value_ = json.Get(a_arguments.parameters().data_, "code", Json::ValueType::stringValue, nullptr).asString();

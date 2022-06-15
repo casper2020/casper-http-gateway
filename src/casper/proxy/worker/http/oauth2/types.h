@@ -298,6 +298,7 @@ namespace casper
                             std::string                                state_;    //!< state
                             ::cc::easy::http::oauth2::Client::Timeouts timeouts_; //!< http timeouts
                             ::cc::easy::http::oauth2::Client::Tokens   tokens_;   //!< oauth2 tokens
+                            bool                                       expose_;   //!<  ... let's call it a 'feature' ...
                         } GrantAuthCodeRequest;
                         
                     public: // Const Data
@@ -653,7 +654,8 @@ namespace casper
                                         /* expires_in_ */  0,
                                         /* scope_      */ "",
                                         /* on_change_  */ nullptr
-                                     }
+                                     },
+                                    /* expose_ */ false
                                 });
                             }
                             // ... callback ...
