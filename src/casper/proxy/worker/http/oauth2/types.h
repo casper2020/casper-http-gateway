@@ -293,12 +293,13 @@ namespace casper
                         } HTTPResponse;
                         
                         typedef struct {
-                            std::string                                value_;    //!< authorization code value
-                            std::string                                scope_;    //!< scope
-                            std::string                                state_;    //!< state
-                            ::cc::easy::http::oauth2::Client::Timeouts timeouts_; //!< http timeouts
-                            ::cc::easy::http::oauth2::Client::Tokens   tokens_;   //!< oauth2 tokens
-                            bool                                       expose_;   //!<  ... let's call it a 'feature' ...
+                            std::string                                value_;        //!< authorization code value
+                            std::string                                scope_;        //!< scope
+                            std::string                                state_;        //!< state
+                            ::cc::easy::http::oauth2::Client::Timeouts timeouts_;     //!< http timeouts
+                            ::cc::easy::http::oauth2::Client::Tokens   tokens_;       //!< oauth2 tokens
+                            bool                                       expose_;       //!<  ... lets call it a 'feature' ...
+                            bool                                       allow_expose_; //!<  ... lets call it a 'feature' ...
                         } GrantAuthCodeRequest;
                         
                     public: // Const Data
@@ -655,7 +656,8 @@ namespace casper
                                         /* scope_      */ "",
                                         /* on_change_  */ nullptr
                                      },
-                                    /* expose_ */ false
+                                    /* expose_       */ false,
+                                    /* allow_expose_ */ false
                                 });
                             }
                             // ... callback ...

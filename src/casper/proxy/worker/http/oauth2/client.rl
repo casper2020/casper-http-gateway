@@ -279,8 +279,9 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     //    "what": <string> : grant or http
     //    "grant": <object> or "http": <object>
     // }
-    bool               broker    = false;
-    const Json::Value& payload   = Payload(a_payload, &broker);
+    bool               broker     = false;
+    bool               broker_job = false;
+    const Json::Value& payload   = Payload(a_payload, &broker, &broker_job);
     const Json::Value& i18n = json.Get(payload, "i18n", Json::ValueType::objectValue, &Json::Value::null);
     if ( false == i18n.isNull() ) {
         OverrideI18N(i18n);
@@ -415,12 +416,14 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id,
     //
     if ( 0 == strcasecmp(what_ref.asCString(), "grant") ) {
         // ... set 'grant' operation arguments ...
-        (void)arguments.parameters().auth_code_request([this, &set_timeouts, &set_storage, &json, &tracking, &provider_cfg, &arguments](proxy::worker::http::oauth2::Parameters::GrantAuthCodeRequest& auth_code) {
+        (void)arguments.parameters().auth_code_request([this, &set_timeouts, &set_storage, &json, &tracking, &provider_cfg, &arguments, &broker_job](proxy::worker::http::oauth2::Parameters::GrantAuthCodeRequest& auth_code) {
             // ... set timeouts ...
             set_timeouts(json.Get(arguments.parameters().data_, "timeouts", Json::ValueType::objectValue, &Json::Value::null), auth_code.timeouts_);
             // ... set storage ...
             set_storage(nullptr);
             // ... set request ....
+            auth_code.allow_expose_ = ( true == broker_job );
+            // ... setup request ....
             (void)arguments.parameters().http_response([&](proxy::worker::http::oauth2::Parameters::HTTPResponse& response){
                 SetupGrantRequest(tracking, provider_cfg, arguments, auth_code, (*tmp_v8_data_));
             });
@@ -496,7 +499,7 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestCompleted
     // ...
     const auto&    response = a_deferred->response();
     const uint16_t code     = response.code();
-    // ... let's call it a 'feature' ...
+    // ... lets call it a 'feature' ...
     if ( Parameters::RequestType::OAuth2Grant == params.request_type() && true == params.auth_code_request().expose_ ) {
         // ... if succeeded and response is JSON ...
         if ( 200 == code && true == ::cc::easy::JSON<::cc::Exception>::IsJSON(response.content_type()) ) {
@@ -768,10 +771,10 @@ void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::cas
     if ( false == state.isNull() ) {
         a_request.state_ = state.asString();
     }
-    // ... let's call it a 'feature' ...
+    // ... lets call it a 'feature' ...
     const auto expose = json.Get(a_arguments.parameters().data_, "expose", Json::ValueType::booleanValue, &Json::Value::null);
     if ( false == expose.isNull() ) {
-        a_request.expose_ = expose.asBool();
+        a_request.expose_ = a_request.allow_expose_ && expose.asBool();
     }
     // ... code ...
     a_request.value_ = json.Get(a_arguments.parameters().data_, "code", Json::ValueType::stringValue, nullptr).asString();
