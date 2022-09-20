@@ -53,7 +53,7 @@ namespace casper
 
                     enum class ClientStep : uint8_t {
                         Fetching = 5,
-                        DoingIt  = 95,
+                        DoingIt  = 50,
                         Done     = 100
                     };
 
