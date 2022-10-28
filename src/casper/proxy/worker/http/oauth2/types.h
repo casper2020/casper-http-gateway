@@ -417,7 +417,7 @@ namespace casper
                                                                                        const std::function<void(::cc::easy::http::oauth2::Client::Config&)>& a_callback)
                         {
                             // ... if doesn't exists yet ...
-                            if ( nullptr == storage_ ) {
+                            if ( nullptr == config_ ) {
                                 // ... create it now ...
                                 config_ = new ::cc::easy::http::oauth2::Client::Config(a_config);
                             }
