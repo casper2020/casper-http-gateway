@@ -60,6 +60,7 @@ int main(int argc, char** argv)
             /* rel_date_       */ CASPER_PROXY_WORKER_REL_DATE,
             /* rel_branch_     */ CASPER_PROXY_WORKER_REL_BRANCH,
             /* rel_hash_       */ CASPER_PROXY_WORKER_REL_HASH,
+            /* rel_target_     */ CASPER_PROXY_WORKER_REL_TARGET,
             /* info_           */ short_info, // short version of CASPER_PROXY_WORKER_INFO
             /* banner_         */ CASPER_PROXY_WORKER_BANNER,
             /* argc_           */ argc,
