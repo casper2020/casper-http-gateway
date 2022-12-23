@@ -5,4 +5,3 @@ src/casper/proxy/worker/http/client.cc
 src/casper/proxy/worker/http/oauth2/client.cc
 # .o
 *.o
-./out
