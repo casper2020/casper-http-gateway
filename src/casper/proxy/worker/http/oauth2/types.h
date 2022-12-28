@@ -308,7 +308,7 @@ namespace casper
                         const Config::Type                              type_;
                         const Json::Value&                              data_;
                         const bool                                      primitive_;
-                        const int                                       log_level_;
+                        const size_t                                    log_level_;
                         const bool                                      log_redact_;
                         
                     private: // Data
@@ -335,7 +335,7 @@ namespace casper
                          */
                         Parameters (const std::string& a_id,
                                     const Config::Type a_type,
-                                    const Json::Value& a_data, const bool a_primitive, const int a_log_level, const bool a_log_redact)
+                                    const Json::Value& a_data, const bool a_primitive, const size_t a_log_level, const bool a_log_redact)
                          : id_(a_id), type_(a_type), data_(a_data), primitive_(a_primitive), log_level_(a_log_level), log_redact_(a_log_redact),
                             config_(nullptr), storage_(nullptr), http_req_(nullptr), http_resp_(nullptr), auth_code_req_(nullptr)
                         {

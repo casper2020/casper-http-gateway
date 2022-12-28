@@ -73,7 +73,7 @@ namespace casper
                     
                     const Json::Value&                       data_;
                     const bool                               primitive_;
-                    const int                                log_level_;
+                    const size_t                             log_level_;
                     const bool                               log_redact_;
                     
                 private: // Data
@@ -93,7 +93,7 @@ namespace casper
                      * @param a_log_level  Log level.
                      * @param a_log_redact Log redact flag.
                      */
-                    Parameters (const Json::Value& a_data, const bool a_primitive, const int a_log_level, const bool a_log_redact)
+                    Parameters (const Json::Value& a_data, const bool a_primitive, const size_t a_log_level, const bool a_log_redact)
                      : data_(a_data), primitive_(a_primitive), log_level_(a_log_level), log_redact_(a_log_redact),
                        http_req_(nullptr), http_resp_(nullptr)
                     {

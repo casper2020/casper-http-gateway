@@ -176,7 +176,7 @@ void casper::proxy::worker::v8::Script::TryCall (const std::function<void(const 
             instance->last_exception_ = nullptr;
         }
         // ... validate number of arguments for this call ..
-        if ( a_args.Length() < a_argc ) {
+        if ( a_args.Length() < static_cast<int>(a_argc) ) {
             throw ::cc::v8::Exception("Invalid expression evaluation: wrong number of arguments got " INT64_FMT ", expected " SIZET_FMT "!", static_cast<int64_t>(a_args.Length()), a_argc);
         }
         // ... perform call ...
