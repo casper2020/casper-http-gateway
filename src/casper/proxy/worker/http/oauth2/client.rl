@@ -27,6 +27,8 @@
 
 #include "cc/ragel.h"
 
+#include "cc/pragmas.h"
+
 #include "cc/fs/file.h"
 #include "cc/fs/dir.h"
 #include "cc/zlib/deflate.h"
@@ -262,7 +264,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
  *
  * @param o_response JSON object.
  */
-void casper::proxy::worker::http::oauth2::Client::InnerRun (const int64_t& a_id, const Json::Value& a_payload, cc::easy::job::Job::Response& o_response)
+void casper::proxy::worker::http::oauth2::Client::InnerRun (const uint64_t& a_id, const Json::Value& a_payload, cc::easy::job::Job::Response& o_response)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
     // ... assuming BAD REQUEST ...

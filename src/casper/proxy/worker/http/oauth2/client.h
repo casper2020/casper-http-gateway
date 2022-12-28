@@ -102,7 +102,7 @@ namespace casper
                     protected: // Inherited Virtual Method(s) / Function(s) - ::casper::job::deferrable::Base<ClientStep, ClientStep::Done>
                         
                         virtual void InnerSetup   ();
-                        virtual void InnerRun     (const int64_t& a_id, const Json::Value& a_payload, cc::easy::job::Job::Response& o_response);
+                        virtual void InnerRun     (const uint64_t& a_id, const Json::Value& a_payload, cc::easy::job::Job::Response& o_response);
                         virtual void InnerCleanUp ();
 
                     private: // Method(s) / Function(s) - deferrable::Dispatcher Callbacks
