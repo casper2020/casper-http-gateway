@@ -869,6 +869,7 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
                     return Json::Value(value.operator const bool());
                 case ::cc::v8::Value::Type::Object:
                     return value.operator const Json::Value &();
+                case ::cc::v8::Value::Type::Date:
                 case ::cc::v8::Value::Type::Undefined:
                 case ::cc::v8::Value::Type::Null:
                     return Json::Value(Json::Value::null);
