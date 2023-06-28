@@ -133,7 +133,9 @@ void casper::proxy::worker::http::Client::InnerRun (const uint64_t& a_id, const 
         const Json::Value& headers         = json.Get(http, "headers"        , Json::ValueType::objectValue, nullptr);
         const Json::Value& follow_location = json.Get(http, "follow_location", Json::ValueType::booleanValue, &Json::Value::null);
 #ifdef CC_DEBUG_ON
-            const Json::Value& ssl_do_not_verify_peer = json.Get(http, "ssl_do_not_verify_peer", Json::ValueType::booleanValue, &Json::Value::null);
+        const Json::Value& ssl_do_not_verify_peer = json.Get(http, "ssl_do_not_verify_peer", Json::ValueType::booleanValue, &Json::Value::null);
+        const Json::Value& proxy                  = json.Get(http, "proxy"                 , Json::ValueType::objectValue , &Json::Value::null);
+        const Json::Value& ca_cert                = json.Get(http, "ca_cert"               , Json::ValueType::objectValue , &Json::Value::null);
 #endif
         // ... method ...
         const std::string method_str = method.asString();
@@ -247,6 +249,15 @@ void casper::proxy::worker::http::Client::InnerRun (const uint64_t& a_id, const 
 #ifdef CC_DEBUG_ON
         if ( false == ssl_do_not_verify_peer.isNull() ) {
             request.ssl_do_not_verify_peer_ = ssl_do_not_verify_peer.asBool();
+        }
+        if ( false == proxy.isNull() ) {
+            request.proxy_.url_      = proxy["url"].asString();
+            request.proxy_.cainfo_   = proxy.get("cainfo"  , "").asString();
+            request.proxy_.cert_     = proxy.get("cert"  , "").asString();
+            request.proxy_.insecure_ = proxy.get("insecure", false).asBool();
+        }
+        if ( false == ca_cert.isNull() ) {
+            request.ca_cert_.uri_ = ca_cert["uri"].asString();
         }
 #endif
     });

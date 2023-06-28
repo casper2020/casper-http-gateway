@@ -104,6 +104,8 @@ void casper::proxy::worker::http::Deferred::Run (const casper::proxy::worker::ht
         if ( true == request.ssl_do_not_verify_peer_ ) {
             http_->SetSSLDoNotVerifyPeer();
         }
+        http_->SetProxy(request.proxy_);
+        http_->SetCACert(request.ca_cert_);
 #endif
         // ... set callbacks ...
         const ::cc::easy::http::Client::Callbacks callbacks = {
