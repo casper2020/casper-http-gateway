@@ -156,6 +156,8 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleLoadTokens (const bo
                 http_->SetcURLedCallbacks({
                     /* log_request_  */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
                     /* log_response_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
+        CC_IF_DEBUG(,/* progress_     */ nullptr)
+        CC_IF_DEBUG(,/* debug_        */ nullptr)
                 }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
             }
             // ... HTTP requests must be performed @ MAIN thread ...
@@ -237,6 +239,8 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleSaveTokens (const bo
                     http_->SetcURLedCallbacks({
                         /* log_request_  */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPRequest, this, std::placeholders::_1, std::placeholders::_2),
                         /* log_response_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnLogHTTPValue  , this, std::placeholders::_1, std::placeholders::_2)
+           CC_IF_DEBUG(,/* progress_     */ nullptr)
+           CC_IF_DEBUG(,/* debug_        */ nullptr)
                     }, HTTPOptions::Redact == ( HTTPOptions::Redact & http_options_ ));
                 }
             }
@@ -288,7 +292,7 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleSaveTokens (const bo
  * @param a_origin Caller function name.
  * @param a_delay  Delay in ms.
  */
-void casper::proxy::worker::http::oauth2::Deferred::ScheduleAuthorization (const bool a_track, const char* const a_origin, const size_t a_delay)
+void casper::proxy::worker::http::oauth2::Deferred::ScheduleAuthorization (const bool a_track, const char* const a_origin, const size_t /* a_delay */)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_FAIL_IF_NOT_AT_THREAD(thread_id_);
@@ -353,7 +357,7 @@ void casper::proxy::worker::http::oauth2::Deferred::ScheduleAuthorization (const
  * @param a_origin Caller function name.
  * @param a_delay  Delay in ms.
  */
-void casper::proxy::worker::http::oauth2::Deferred::SchedulePerformRequest (const bool a_track, const char* const a_origin, const size_t a_delay)
+void casper::proxy::worker::http::oauth2::Deferred::SchedulePerformRequest (const bool a_track, const char* const a_origin, const size_t /* a_delay */)
 {
     // ... (in)sanity checkpoint ...
     CC_DEBUG_ASSERT(nullptr != arguments_);

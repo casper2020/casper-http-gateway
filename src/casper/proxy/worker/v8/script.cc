@@ -85,7 +85,7 @@ casper::proxy::worker::v8::Script::~Script ()
  * @param a_expressions      Expressions to load.
  * @param a_ss               Stream to use when loading additional functions.
  */
-void casper::proxy::worker::v8::Script::InnerLoad (const Json::Value& a_external_scripts, const casper::proxy::worker::v8::Script::Expressions& a_expressions, std::stringstream& a_ss)
+void casper::proxy::worker::v8::Script::InnerLoad (const Json::Value& a_external_scripts, const casper::proxy::worker::v8::Script::Expressions& /* a_expressions */, std::stringstream& a_ss)
 {
     // ... load external scripts ( 😨 ) ...
     if ( false == a_external_scripts.isNull() ) {

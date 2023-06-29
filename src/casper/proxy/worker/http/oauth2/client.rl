@@ -426,7 +426,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const uint64_t& a_id
             // ... set request ....
             auth_code.allow_expose_ = ( true == broker_job );
             // ... setup request ....
-            (void)arguments.parameters().http_response([&](proxy::worker::http::oauth2::Parameters::HTTPResponse& response){
+            (void)arguments.parameters().http_response([&](proxy::worker::http::oauth2::Parameters::HTTPResponse& /* response */) {
                 SetupGrantRequest(tracking, provider_cfg, arguments, auth_code, (*tmp_v8_data_));
             });
         });
@@ -745,10 +745,10 @@ uint16_t casper::proxy::worker::http::oauth2::Client::OnDeferredRequestFailed (c
  * @param a_request   Object to setup.
  * @param o_v8_data   V8 JSON object to setup.
  */
-void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::casper::job::deferrable::Tracking& a_tracking,
+void casper::proxy::worker::http::oauth2::Client::SetupGrantRequest (const ::casper::job::deferrable::Tracking& /* a_tracking */,
                                                                      const casper::proxy::worker::http::oauth2::Config& a_provider, casper::proxy::worker::http::oauth2::Arguments& a_arguments,
                                                                      casper::proxy::worker::http::oauth2::Parameters::GrantAuthCodeRequest& a_request,
-                                                                     Json::Value& o_v8_data)
+                                                                     Json::Value& /* o_v8_data */)
 {
     const ::cc::easy::JSON<::cc::BadRequest> json;
     // ... process ...
