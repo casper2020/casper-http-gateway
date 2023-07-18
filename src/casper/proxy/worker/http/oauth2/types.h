@@ -210,6 +210,9 @@ namespace casper
                         inline const Storageless& storageless (const std::function<void(Storageless&)>& a_callback)
                         {
                             if ( nullptr != storageless_ ) {
+                                // ... callback ...
+                                a_callback(*storageless_);
+                                // .. done ..
                                 return *storageless_;
                             }
                             throw cc::InternalServerError("Invalid call to %s!", __PRETTY_FUNCTION__);
