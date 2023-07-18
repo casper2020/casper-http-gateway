@@ -338,7 +338,7 @@ void casper::proxy::worker::http::oauth2::Client::InnerRun (const uint64_t& a_id
             config.oauth2_.scope_ = scope.asString();
         }
     });
-        
+
     // ... set v8 data ...
     tmp_v8_data_ = new Json::Value(payload);
     // ... set 'purpose' and 'scope' ...
@@ -954,6 +954,27 @@ void casper::proxy::worker::http::oauth2::Client::SetupHTTPRequest (const ::casp
             }
         }
     }
+    // ... debug stuff ...
+#ifdef CC_DEBUG_ON
+    {
+        const Json::Value& ssl_do_not_verify_peer = json.Get(http, "ssl_do_not_verify_peer", Json::ValueType::booleanValue, &Json::Value::null);
+        const Json::Value& proxy                  = json.Get(http, "proxy"                 , Json::ValueType::objectValue , &Json::Value::null);
+        const Json::Value& ca_cert                = json.Get(http, "ca_cert"               , Json::ValueType::objectValue , &Json::Value::null);
+        // ... disable SSL peer verification?
+        if ( false == ssl_do_not_verify_peer.isNull() ) {
+            a_request.ssl_do_not_verify_peer_ = ssl_do_not_verify_peer.asBool();
+        }
+        if ( false == proxy.isNull() ) {
+            a_request.proxy_.url_      = proxy["url"].asString();
+            a_request.proxy_.cainfo_   = proxy.get("cainfo"  , "").asString();
+            a_request.proxy_.cert_     = proxy.get("cert"  , "").asString();
+            a_request.proxy_.insecure_ = proxy.get("insecure", false).asBool();
+        }
+        if ( false == ca_cert.isNull() ) {
+            a_request.ca_cert_.uri_ = ca_cert["uri"].asString();
+        }
+    }
+#endif
     //
     // RESPONSE config
     //

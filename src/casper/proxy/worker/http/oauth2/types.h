@@ -279,6 +279,11 @@ namespace casper
                             ::cc::easy::http::oauth2::Client::Headers  headers_;
                             ::cc::easy::http::oauth2::Client::Timeouts timeouts_;
                             ::cc::easy::http::oauth2::Client::Tokens   tokens_;
+#ifdef CC_DEBUG_ON
+                            bool                                       ssl_do_not_verify_peer_;
+                            ::cc::easy::http::oauth2::Client::Proxy    proxy_;
+                            ::cc::easy::http::oauth2::Client::CACert   ca_cert_;
+#endif
                         } HTTPRequest;
                         
                         typedef struct {
@@ -542,6 +547,12 @@ namespace casper
                                         /* scope_      */ "",
                                         /* on_change_  */ nullptr
                                      }
+#ifdef CC_DEBUG_ON
+                                    ,
+                                    /* ssl_do_not_verify_peer_ */ false,
+                                    /* proxy_                   */{ /* url_ */ "", /* cainfo_ */ "", /* cert_ */ "", /* insecure_ */ false },
+                                    /* ca_cert_                 */{ /* uri_ */ "" },
+#endif
                                 });
                             }
                             // ... callback ...

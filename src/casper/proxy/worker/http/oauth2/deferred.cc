@@ -382,6 +382,14 @@ void casper::proxy::worker::http::oauth2::Deferred::SchedulePerformRequest (cons
             /* on_error_   */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestError    , this, std::placeholders::_1),
             /* on_failure_ */ std::bind(&casper::proxy::worker::http::oauth2::Deferred::OnHTTPRequestFailure  , this, std::placeholders::_1)
         };
+#ifdef CC_DEBUG_ON
+        // ... disable SSL peer verification?
+        if ( true == request.ssl_do_not_verify_peer_ ) {
+            http_oauth2_->SetSSLDoNotVerifyPeer();
+        }
+        http_oauth2_->SetProxy(request.proxy_);
+        http_oauth2_->SetCACert(request.ca_cert_);
+#endif
         switch(request.method_) {
             case ::cc::easy::http::Client::Method::HEAD:
                 http_oauth2_->HEAD(request.url_, request.headers_, callbacks, &request.timeouts_);

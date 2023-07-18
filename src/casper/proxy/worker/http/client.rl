@@ -245,8 +245,9 @@ void casper::proxy::worker::http::Client::InnerRun (const uint64_t& a_id, const 
         if ( false == follow_location.isNull() ) {
             request.follow_location_ = follow_location.asBool();
         }
-        // ... disable SSL peer verification?
+        // ... debug stuff ...
 #ifdef CC_DEBUG_ON
+        // ... disable SSL peer verification?
         if ( false == ssl_do_not_verify_peer.isNull() ) {
             request.ssl_do_not_verify_peer_ = ssl_do_not_verify_peer.asBool();
         }
