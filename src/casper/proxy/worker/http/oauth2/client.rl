@@ -221,6 +221,14 @@ void casper::proxy::worker::http::oauth2::Client::InnerSetup ()
                         /* storage_ */
                         proxy::worker::http::oauth2::Config::Storageless({
                             /* headers_ */ {},
+                            /* tokens_   */ {
+                                /* type_       */ "",
+                                /* access_     */ "",
+                                /* refresh_    */ "",
+                                /* expires_in_ */ 0,
+                                /* scope_      */ "",
+                                /* on_change_  */ nullptr
+                            }
                         })
                     });
                 } else {
